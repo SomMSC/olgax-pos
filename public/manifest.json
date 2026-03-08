@@ -1,0 +1,31 @@
+{
+  "name": "Olgax POS",
+  "short_name": "Olgax POS",
+  "description": "Open-source offline-capable Point of Sale for small businesses",
+  "start_url": "/pos",
+  "display": "standalone",
+  "background_color": "#0f2044",
+  "theme_color": "#0f2044",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": []
+}

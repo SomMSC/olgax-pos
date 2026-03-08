@@ -1,36 +1,155 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
+  <h1>Olgax POS</h1>
+  <p>Open-source, offline-capable Point of Sale system — free forever for self-hosted deployments.</p>
+  <p>
+    <a href="https://olgax.com">olgax.com</a> ·
+    <a href="docs/getting-started.md">Getting Started</a> ·
+    <a href="docs/architecture.md">Architecture</a> ·
+    <a href="docs/deployment.md">Deployment</a> ·
+    <a href="docs/contributing.md">Contributing</a>
+  </p>
+  <p>
+    <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" />
+    <img alt="Version 0.1" src="https://img.shields.io/badge/version-0.1--MVP-orange.svg" />
+    <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-black.svg" />
+    <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" />
+  </p>
+</div>
 
-## Getting Started
+---
 
-First, run the development server:
+## What is Olgax POS?
+
+**Olgax POS** is a fast, touch-friendly, fully offline-capable Point of Sale system built by [OLGAX](https://olgax.com). It is designed to be good enough for real small businesses to use daily — for free, forever — while remaining extensible into a full-featured SaaS platform.
+
+- **Self-hosted** — run it on your own server with Docker in minutes.
+- **Offline-first** — uses PGLite (Postgres WASM) to record sales even with no internet, then syncs automatically when connectivity returns.
+- **Globally configurable** — change your business name, logo, colors, currency, and tax settings from the UI.
+- **Open source** — MIT licensed. Fork it, extend it, run it.
+
+---
+
+## Features (v0.1 MVP)
+
+| Feature | Status |
+|---|---|
+| Product catalog (create / edit / delete) | ✅ |
+| Barcode / keyboard product search | ✅ |
+| Stock adjustment history with audit trail | ✅ |
+| Supplier management | ✅ |
+| POS checkout — cart, qty, discount, tax | ✅ |
+| Split-tender payments (Cash + Card + Other) | ✅ |
+| Hold & recall orders | ✅ |
+| Void sale with reason | ✅ |
+| Refund / partial refund support | ✅ |
+| Tip support at checkout | ✅ |
+| Receipt printing (ESC/POS thermal + browser fallback) | ✅ |
+| Customer directory with purchase history | ✅ |
+| Loyalty points (earn & redeem) | ✅ |
+| Offline mode with auto-sync | ✅ |
+| Admin + Cashier roles | ✅ |
+| Business settings (logo, colors, currency, tax) | ✅ |
+| Sales reports & CSV export | ✅ |
+| Breadcrumb navigation on detail pages | ✅ |
+| Docker Compose ready | ✅ |
+| PWA / installable on tablet | ✅ |
+
+---
+
+## Quick Start (Docker — recommended)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. Clone
+git clone https://github.com/olgax/olgax-pos.git
+cd olgax-pos
+
+# 2. Configure secrets
+cp .env.example .env
+# Edit .env: set BETTER_AUTH_SECRET to a long random string
+
+# 3. Start
+docker compose up -d
+
+# 4. Open in browser
+open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The first time you open the app you will be guided through a setup wizard that migrates the database and creates your admin account.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Quick Start (Local Development)
 
-## Learn More
+**Prerequisites**: Node.js ≥ 20, pnpm ≥ 9, PostgreSQL ≥ 14
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# 1. Clone & install
+git clone https://github.com/olgax/olgax-pos.git
+cd olgax-pos
+pnpm install
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 2. Configure environment
+cp .env.example .env
+# Set DATABASE_URL and BETTER_AUTH_SECRET in .env
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# 3. Migrate database
+pnpm db:migrate
 
-## Deploy on Vercel
+# 4. (Optional) Seed sample products
+pnpm db:seed
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# 5. Start dev server
+pnpm dev
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000). A setup wizard will guide you through creating your admin account on first run.
+
+---
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Full installation guide for all environments |
+| [Configuration](docs/configuration.md) | Environment variables, business settings, per-device settings |
+| [Architecture](docs/architecture.md) | Tech stack, project structure, data model |
+| [Deployment](docs/deployment.md) | Docker, reverse proxy, HTTPS, production checklist |
+| [API Reference](docs/api-reference.md) | Internal REST API endpoints |
+| [Contributing](docs/contributing.md) | Development workflow, coding standards, PR guide |
+
+---
+
+## Tech Stack
+
+- **Framework**: Next.js 16 App Router + TypeScript strict mode
+- **UI**: shadcn/ui + Tailwind CSS 4
+- **Database**: PostgreSQL + Prisma 7 ORM
+- **Offline DB**: PGLite (Postgres WASM in the browser)
+- **Auth**: Better Auth (email/password, role-based)
+- **State**: Zustand (POS cart)
+- **Forms**: react-hook-form + Zod validation
+- **Testing**: Vitest + Playwright
+
+---
+
+## Roadmap
+
+The MVP (v0.1) is designed to be immediately useful for small businesses while laying clean groundwork for future features:
+
+- [ ] Multi-language (next-intl)
+- [ ] Multi-store / multi-location
+- [ ] Customer directory + loyalty points
+- [ ] Plugin system
+- [ ] Advanced reports + charts
+- [ ] Kitchen Display System (KDS)
+- [ ] Hosted SaaS at olgax.app
+
+See [OLGAX Roadmap](https://olgax.com/roadmap) for the full picture.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
+
+Built with ❤️ by [OLGAX](https://olgax.com)
