@@ -22,6 +22,7 @@ Internal REST API endpoints used by the Olgax POS application. These are not a p
 - [Reports](#reports)
 - [Health Check](#health-check)
 - [Setup Wizard API](#setup-wizard-api)
+- [Users](#users)
 
 ---
 
@@ -598,6 +599,148 @@ Saves business settings and marks setup as complete. Also sets the `olgax-setup-
 **Error Response (403):**
 ```json
 { "error": "Setup already complete" }
+```
+
+---
+
+## Users
+
+### GET /api/users
+
+Retrieve a list of all users. **Requires Admin role.**
+
+**Success Response:**
+```json
+{
+  "users": [
+    {
+      "id": "JcI3lCK...",
+      "email": "cashier@example.com",
+      "name": "Cashier User",
+      "role": "CASHIER",
+      "createdAt": "2026-05-28T10:00:00.000Z",
+      "emailVerified": true
+    }
+  ]
+}
+```
+
+---
+
+### POST /api/users
+
+Create a new user account. **Requires Admin role.**
+
+**Body:**
+```json
+{
+  "name": "Cashier User",
+  "email": "cashier@example.com",
+  "password": "securepassword123",
+  "role": "CASHIER"
+}
+```
+
+**Success Response (201 Created):**
+```json
+{
+  "user": {
+    "id": "JcI3lCK...",
+    "email": "cashier@example.com",
+    "name": "Cashier User",
+    "role": "CASHIER",
+    "createdAt": "2026-05-28T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+### PUT /api/users/[id]/update
+
+Update another user's details. **Requires Admin role.**
+
+**Body:**
+```json
+{
+  "name": "Updated Name",
+  "email": "new.email@example.com",
+  "role": "ADMIN"
+}
+```
+
+**Success Response:**
+```json
+{
+  "id": "clxyz...",
+  "email": "new.email@example.com",
+  "name": "Updated Name",
+  "role": "ADMIN",
+  "updatedAt": "2026-05-28T10:05:00.000Z"
+}
+```
+
+---
+
+### DELETE /api/users/[id]
+
+Delete a user account. **Requires Admin role.**
+
+> Note: You cannot delete your own account, nor can you delete the last Admin account.
+
+**Success Response:**
+```json
+{
+  "ok": true
+}
+```
+
+---
+
+### PUT /api/users/me/profile
+
+Update the currently logged-in user's profile details. **Requires an authenticated session.**
+
+**Body:**
+```json
+{
+  "name": "New Name",
+  "email": "new.email@example.com"
+}
+```
+
+**Success Response:**
+```json
+{
+  "user": {
+    "id": "clxyz...",
+    "email": "new.email@example.com",
+    "name": "New Name",
+    "role": "ADMIN",
+    "emailVerified": true
+  }
+}
+```
+
+---
+
+### POST /api/users/me/change-password
+
+Change the currently logged-in user's password. **Requires an authenticated session.**
+
+**Body:**
+```json
+{
+  "currentPassword": "oldPassword123",
+  "newPassword": "newSecurePassword123"
+}
+```
+
+**Success Response:**
+```json
+{
+  "message": "Password changed successfully"
+}
 ```
 
 ---

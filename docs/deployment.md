@@ -7,6 +7,8 @@ How to deploy Olgax POS in production.
 ## Table of Contents
 
 - [Docker Compose (Recommended)](#docker-compose-recommended)
+- [Serverless Deployments (Vercel / Netlify)](#serverless-deployments-vercel--netlify)
+- [Managed 3rd-Party PostgreSQL Providers](#managed-3rd-party-postgresql-providers)
 - [Environment Variables for Production](#environment-variables-for-production)
 - [Reverse Proxy (Nginx / Caddy)](#reverse-proxy-nginx--caddy)
 - [HTTPS Setup](#https-setup)
@@ -37,6 +39,66 @@ docker compose logs -f web
 ```
 
 The web service will be available on port **3000**. Put it behind Nginx or Caddy for HTTPS.
+
+---
+
+## Serverless Deployments (Vercel / Netlify)
+
+Olgax POS can be deployed on serverless hosting platforms like Vercel or Netlify without needing Docker, a VPS, or a virtual machine. 
+
+### Deploying on Vercel (Recommended)
+
+Vercel provides native, optimized support for Next.js applications:
+
+1. **Fork or Use Template**: Click **Fork** or **Use this template** at the top of the [Olgax POS GitHub Repository](https://github.com/olgax/olgax-pos) to create a copy of the project in your own GitHub/GitLab account.
+2. **Import Project**: Open the [Vercel Dashboard](https://vercel.com), click **Add New** -> **Project**, and select your imported/forked repository.
+3. **Configure Settings**:
+   - **Framework Preset**: Select **Next.js**.
+   - **Build Command**: `npx prisma generate && next build`
+     - *Optional*: If you want migrations to run automatically on every deployment, change the build command to:
+       `npx prisma migrate deploy && npx prisma generate && next build`
+   - **Environment Variables**: Add your production variables (see [Environment Variables for Production](#environment-variables-for-production) below).
+4. **Deploy**: Click **Deploy**. Vercel will compile the application and deploy it to global serverless edge functions.
+
+---
+
+### Deploying on Netlify
+
+Netlify supports Next.js via Netlify Functions:
+
+1. **Import Project**: In the [Netlify Dashboard](https://app.netlify.com), click **Add new site** -> **Import an existing project** and select your repository.
+2. **Configure Settings**:
+   - **Build command**: `npx prisma generate && next build`
+   - **Publish directory**: `.next`
+3. **Environment Variables**: Go to **Site settings** -> **Environment variables** and add your production variables.
+4. **Deploy**: Trigger the deployment.
+
+---
+
+## Managed 3rd-Party PostgreSQL Providers
+
+Since serverless functions scale up and down dynamically, a standard PostgreSQL database can run out of connections quickly as each edge/serverless function execution thread opens its own pool. It is highly recommended to use a managed database provider that supports **connection pooling**.
+
+### Recommended Providers
+
+| Provider | Features | Ideal Setup |
+|---|---|---|
+| **Neon** | Serverless Postgres, autoscaling, connection pooling | Use the pooled connection string (`-pooler` endpoint). |
+| **Supabase** | Managed Postgres, built-in PgBouncer | Use the connection string with port `6543` (pooling port). |
+| **Railway** | Fully managed Postgres, simple provisioning | Good for general use; verify connection limits. |
+| **Render** | Simple, managed database instances | Set up connection limits appropriately. |
+
+### Connection Pooling Configuration
+
+When using connection pooling, database operations require two different connection strings:
+1. **Pooled Connection (`DATABASE_URL`)**: Used by the Next.js application runtime to handle queries. It allows reusing database connections.
+2. **Direct Connection (`DIRECT_URL`)**: Used for running schema migrations (`prisma migrate deploy`) or seeding. Some poolers (like PgBouncer) do not support the transaction types required for migrations.
+
+To use this setup:
+- Set `DATABASE_URL` to your provider's **pooled** connection URL.
+- Set `DIRECT_URL` to your provider's **direct** connection URL.
+
+Prisma will automatically route migrations through the direct endpoint and runtime queries through the pooled endpoint.
 
 ---
 

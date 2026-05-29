@@ -355,20 +355,31 @@ function StepDatabase({ onNext, onBack }: { onNext: () => void; onBack: () => vo
 
         {!loading && status && (
           <div className="space-y-1">
-            <Check
-              ok={status.dbConnected}
-              label={
-                status.dbConnected ? "Database connection — OK" : "Database connection — failed"
-              }
-            />
-            <Check
-              ok={status.dbInitialized}
-              label={
-                status.dbInitialized
-                  ? "Database tables — initialized"
-                  : "Database tables — not yet created"
-              }
-            />
+            {status.dbConnected ? (
+              <div className="flex items-center gap-3 py-2">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">✓</span>
+                <span className="text-sm text-gray-700 font-medium">Database connection — Connected successfully</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 py-2">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-xs font-bold">✗</span>
+                <span className="text-sm text-red-500 font-medium">Database connection — Failed to connect</span>
+              </div>
+            )}
+
+            {status.dbConnected && (
+              status.dbInitialized ? (
+                <div className="flex items-center gap-3 py-2">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">✓</span>
+                  <span className="text-sm text-gray-700 font-medium">Database tables — Schema is up to date</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 py-2">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold">!</span>
+                  <span className="text-sm text-amber-600 font-medium">Database tables — Ready to be initialized</span>
+                </div>
+              )
+            )}
           </div>
         )}
 

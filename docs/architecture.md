@@ -1,6 +1,8 @@
 # Architecture
 
-A technical overview of how Olgax POS is built.
+Technical overview of the current Olgax POS codebase.
+
+Last validated against code: 2026-03-14.
 
 ---
 
@@ -9,10 +11,14 @@ A technical overview of how Olgax POS is built.
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Application Routes](#application-routes)
+- [API Routes](#api-routes)
+- [Authentication and Authorization](#authentication-and-authorization)
 - [Data Model](#data-model)
-- [Authentication Flow](#authentication-flow)
 - [Offline Architecture](#offline-architecture)
-- [Caching Strategy](#caching-strategy)
+- [Internationalization](#internationalization)
+- [Plugin System](#plugin-system)
+- [Caching and Rendering](#caching-and-rendering)
+- [Testing](#testing)
 
 ---
 
@@ -20,270 +26,293 @@ A technical overview of how Olgax POS is built.
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Framework | Next.js 16 App Router | TypeScript strict, Turbopack in dev |
-| UI Components | shadcn/ui | Radix primitives + Tailwind CSS 4 |
-| Styling | Tailwind CSS 4 | CSS variables for theming |
-| ORM | Prisma 7 | `@prisma/client` + `PrismaPg` adapter |
-| Database | PostgreSQL ≥ 14 | Managed via Docker Compose |
-| Offline DB | PGLite (Postgres WASM) | Runs in the browser, syncs to server |
-| Auth | Better Auth 1.x | Email/password, role-based, cookie sessions |
-| POS State | Zustand | Cart, held orders |
-| Forms | react-hook-form + Zod | Client-side validation |
-| Testing | Vitest + Playwright | Unit tests + E2E |
-| Package manager | pnpm | Workspace-ready |
+| Framework | Next.js 16.1.6 (App Router) | React 19.2.3, TypeScript strict |
+| UI | Tailwind CSS 4 + shadcn/ui primitives | Custom components are also used heavily |
+| ORM | Prisma 7.4.x | Client generated to `src/generated/prisma` |
+| Database | PostgreSQL | Primary server database |
+| Offline DB | PGLite (`@electric-sql/pglite`) | Browser IndexedDB-backed local Postgres |
+| Auth | Better Auth 1.5.x | Email/password, cookie sessions, user role field |
+| Forms/Validation | Zod + react-hook-form | Mixed with controlled React state on several pages |
+| State | Zustand | POS cart state in `src/store/cart.ts` |
+| i18n | next-intl | Locale from cookie or business settings |
+| Testing | Vitest + Playwright | Unit and E2E coverage |
+| Package Manager | pnpm | Scripts in `package.json` |
 
 ---
 
 ## Project Structure
 
-```
+```text
 olgax-pos/
-├── docs/                        # ← Public documentation (you are here)
-├── plugins/                     # Plugin folder (see PLUGIN_AUTHORING.md)
+├── docs/                          # Public project docs
+├── messages/                      # next-intl locale files (14 locales)
+├── plugins/
+│   └── example/                   # Example plugin manifest + code
 ├── prisma/
-│   ├── schema.prisma            # Database schema
-│   ├── migrations/              # SQL migration history
-│   └── seed.ts                  # Sample data seed script
+│   ├── schema.prisma
+│   ├── migrations/
+│   ├── seed.ts
+│   └── reset-db.ts
 ├── public/
-│   ├── icons/                   # PWA icons
-│   ├── uploads/                 # User-uploaded images (logo, products)
-│   └── manifest.json            # PWA manifest
+│   ├── manifest.json
+│   ├── site.webmanifest
+│   ├── sw.js
+│   └── *.png / favicon assets
 ├── src/
 │   ├── app/
-│   │   ├── (app)/               # Authenticated app shell
-│   │   │   ├── layout.tsx       # App layout (sidebar, session guard)
-│   │   │   ├── pos/             # POS checkout screen
-│   │   │   ├── products/        # Product catalog (list, new, [id], [id]/edit)
-│   │   │   ├── customers/       # Customer directory (list, [id] profile)
-│   │   │   ├── suppliers/       # Supplier management
-│   │   │   ├── sales/           # Sales history
-│   │   │   ├── reports/         # Reports & analytics
-│   │   │   └── settings/        # Business settings
-│   │   ├── (auth)/
-│   │   │   └── login/           # Login page (white theme, password toggle)
-│   │   ├── setup/               # First-run setup wizard (white theme)
-│   │   └── api/
-│   │       ├── auth/            # Better Auth handler ([...all]/route.ts)
-│   │       ├── customers/       # Customer CRUD + merge + duplicates
-│   │       ├── held-orders/     # Hold & recall order queue
-│   │       ├── loyalty/         # Loyalty points ledger
-│   │       ├── products/search/ # Product search (name/SKU/barcode)
-│   │       ├── reports/         # Aggregated sales reports
-│   │       ├── sales/           # Sale create + history + export + refund
-│   │       ├── settings/        # Business settings read/write
-│   │       ├── setup/           # Setup wizard API routes
-│   │       ├── stock-adjustments/ # Manual stock adjustment log
-│   │       ├── suppliers/       # Supplier CRUD
-│   │       └── upload/          # Image upload (logo, product photos)
-│   ├── components/
-│   │   ├── layout/              # AppSidebar, SyncStatusBadge
-│   │   ├── pos/                 # Cart, ProductGrid, HeldOrdersModal, etc.
-│   │   ├── products/            # ProductTable, ProductForm, StockAdjustButton
-│   │   ├── receipt/             # ReceiptModal, thermal ESC/POS printer
-│   │   ├── sales/               # SalesTable, SalesExportButton
-│   │   ├── reports/             # ReportsSummary
-│   │   ├── settings/            # SettingsForm, DeviceSettingsForm
-│   │   ├── setup/               # SetupWizard multi-step form
-│   │   └── ui/                  # Generic primitives (Breadcrumb, skeleton, etc.)
+│   │   ├── (app)/                 # Authenticated app pages
+│   │   ├── (auth)/login/          # Login page
+│   │   ├── actions/               # Server Actions (settings, products, locale)
+│   │   ├── api/                   # Route Handlers
+│   │   ├── setup/                 # First-run setup wizard
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   └── page.tsx               # Redirects to /pos
+│   ├── components/                # UI and feature components
+│   ├── generated/prisma/          # Generated Prisma client
 │   ├── hooks/
-│   │   └── use-online-status.ts # Detects online/offline + triggers sync
-│   ├── lib/
-│   │   ├── auth.ts              # Better Auth server config
-│   │   ├── auth-client.ts       # Better Auth browser client
-│   │   ├── db.ts                # Prisma client singleton
-│   │   ├── pglite.ts            # PGLite browser DB + offline queue
-│   │   ├── plugins.ts           # Plugin registry + hook emitter
-│   │   ├── sync.ts              # Offline → server sync logic
-│   │   └── utils.ts             # formatCurrency, cn(), etc.
+│   ├── i18n/
+│   ├── lib/                       # auth/db/sync/storage/plugins/utils
 │   ├── store/
-│   │   └── cart.ts              # Zustand cart store
-│   ├── proxy.ts                 # Edge route guard (auth + setup cookies)
-│   └── types/                   # Shared TypeScript types
-├── messages/                    # i18n translation files (one per locale)
-└── src/tests/                   # Vitest unit tests + Playwright E2E specs
+│   ├── tests/                     # Vitest + Playwright tests
+│   ├── types/
+│   └── proxy.ts                   # Edge auth/setup guard
+├── next.config.ts
+├── playwright.config.ts
+└── vitest.config.ts
 ```
+
+Notes:
+- `public/uploads/` is not committed, but is created at runtime when local storage uploads are used.
+- Data mutations are split between Server Actions and API routes (both patterns are used today).
 
 ---
 
 ## Application Routes
 
-### Page Routes
-
-| Route | Access | Description |
+| Route | Access in code | Description |
 |---|---|---|
 | `/` | Public | Redirects to `/pos` |
-| `/login` | Public (unauthenticated only) | Email/password login |
-| `/setup` | Public (pre-setup only) | First-run setup wizard |
-| `/pos` | Admin + Cashier | POS checkout screen |
-| `/products` | Admin only | Product catalog list |
-| `/products/new` | Admin only | Create product form |
-| `/products/[id]` | Admin only | Product detail + stock adjustment history |
-| `/products/[id]/edit` | Admin only | Edit product form |
-| `/customers` | Admin only | Customer directory |
-| `/customers/[id]` | Admin only | Customer profile + purchase history |
-| `/suppliers` | Admin only | Supplier list & management |
-| `/sales` | Admin + Cashier | Sales history table |
-| `/reports` | Admin only | Summary reports |
-| `/settings` | Admin only | Business settings form |
+| `/login` | Public (redirected to `/pos` if session cookie exists) | Login screen |
+| `/setup` | Public when setup is incomplete | Setup wizard |
+| `/pos` | Any authenticated session | POS checkout |
+| `/products` | Any authenticated session | Product list |
+| `/products/new` | Any authenticated session | New product form |
+| `/products/[id]` | Any authenticated session | Product detail + stock adjustment history |
+| `/products/[id]/edit` | Any authenticated session | Edit product |
+| `/customers` | Any authenticated session | Customer management |
+| `/customers/[id]` | Any authenticated session | Customer profile |
+| `/suppliers` | Any authenticated session | Suppliers page |
+| `/sales` | Any authenticated session | Sales history |
+| `/reports` | Enforced ADMIN in page code | Reports dashboard |
+| `/settings` | Enforced ADMIN in page code | Business/device settings + plugins panel |
+| `/settings/profile` | Any authenticated session | Personal profile settings (edit name/email, change password) |
+| `/settings/users` | Enforced ADMIN in page code | User accounts management (view, create, edit, delete users) |
 
-### API Routes
+Important:
+- Sidebar navigation hides admin pages for cashier users.
+- Route-level ADMIN checks are explicitly enforced in `reports`, `settings`, and `settings/users` pages.
 
-| Route | Methods | Description |
+---
+
+## API Routes
+
+### Auth and setup
+
+| Route | Methods | Auth requirement |
 |---|---|---|
-| `/api/auth/[...all]` | All | Better Auth handler |
-| `/api/products/search` | GET | Product search by name/SKU/barcode |
-| `/api/sales` | GET, POST | List sales + create sale |
-| `/api/sales/export` | GET | Export sales as CSV |
-| `/api/sales/[id]/refund` | POST | Full or partial refund on a sale |
-| `/api/customers` | GET, POST | List + create customers |
-| `/api/customers/[id]` | GET, PUT, DELETE | Customer detail, update, delete |
-| `/api/customers/duplicates` | GET | Find duplicate customer records |
-| `/api/customers/merge` | POST | Merge duplicate customers |
-| `/api/suppliers` | GET, POST | List + create suppliers |
-| `/api/suppliers/[id]` | GET, PUT, DELETE | Supplier detail, update, delete |
-| `/api/held-orders` | GET, POST, DELETE | Hold-order queue |
-| `/api/loyalty` | POST | Update loyalty points for a customer |
-| `/api/stock-adjustments` | GET, POST | Stock adjustment history + manual adjust |
-| `/api/settings` | GET, PUT | Business settings (public read, admin write) |
-| `/api/upload` | POST | Image upload (logo, product photos) |
-| `/api/reports` | GET | Aggregated sales report data |
-| `/api/ping` | GET | Health-check / DB connectivity probe |
-| `/api/setup/status` | GET | DB + setup status probe |
-| `/api/setup/migrate` | POST | Run Prisma migrations |
-| `/api/setup/admin` | POST | Create first admin account |
-| `/api/setup/complete` | POST | Finalize setup, set cookie |
+| `/api/auth/[...all]` | GET, POST | Better Auth handler |
+| `/api/ping` | GET | None |
+| `/api/setup/status` | GET | None |
+| `/api/setup/migrate` | POST | None (setup flow endpoint) |
+| `/api/setup/admin` | POST | None (setup flow endpoint) |
+| `/api/setup/complete` | POST | None (blocked if already setup complete) |
+
+### POS/business APIs
+
+| Route | Methods | Auth requirement |
+|---|---|---|
+| `/api/products/search` | GET | None |
+| `/api/sales` | POST | Authenticated |
+| `/api/sales/export` | GET | Authenticated |
+| `/api/sales/[id]/refund` | POST | ADMIN |
+| `/api/reports` | GET | ADMIN |
+| `/api/customers` | GET, POST | Authenticated |
+| `/api/customers/[id]` | PUT, DELETE | Authenticated |
+| `/api/customers/duplicates` | GET | Authenticated |
+| `/api/customers/merge` | POST | Authenticated |
+| `/api/suppliers` | GET, POST | GET: Authenticated, POST: ADMIN |
+| `/api/suppliers/[id]` | PUT, DELETE | ADMIN |
+| `/api/held-orders` | GET, POST, DELETE | Authenticated |
+| `/api/loyalty` | GET | Authenticated |
+| `/api/stock-adjustments` | GET, POST | GET: Authenticated, POST: ADMIN |
+| `/api/settings` | GET | None |
+| `/api/upload` | POST | ADMIN |
+
+### Users APIs
+
+| Route | Methods | Auth requirement |
+|---|---|---|
+| `/api/users` | GET, POST | ADMIN |
+| `/api/users/[id]` | DELETE | ADMIN |
+| `/api/users/[id]/update` | PUT | ADMIN |
+| `/api/users/me/profile` | PUT | Authenticated |
+| `/api/users/me/change-password` | POST | Authenticated |
+
+Notes:
+- `settings` writes are done through a Server Action (`src/app/actions/settings-actions.ts`), not a PUT API route.
+- `products` create/update/delete are done through Server Actions (`src/app/actions/product-actions.ts`).
+
+---
+
+## Authentication and Authorization
+
+Auth flow:
+1. User logs in from `/login` using Better Auth client (`signIn.email`).
+2. Better Auth sets session cookies.
+3. `src/proxy.ts` checks setup cookie and session cookie on requests.
+4. Protected routes redirect unauthenticated users to `/login`.
+5. Server components and APIs fetch full session via `auth.api.getSession({ headers })` when needed.
+
+Role model:
+- Roles are stored on `User.role` enum (`ADMIN`, `CASHIER`).
+- ADMIN-only checks are enforced on:
+  - `/reports` page
+  - `/settings` page
+  - admin API endpoints (refunds, reports, upload, supplier writes, stock-adjust POST)
+- Several authenticated pages and APIs are role-open (session required but not ADMIN-only).
+
+Setup gating:
+- Setup completion cookie: `olgax-setup-complete`.
+- If setup is incomplete (or required env vars missing), middleware redirects to `/setup`.
 
 ---
 
 ## Data Model
 
-Key models defined in `prisma/schema.prisma`:
+Models are defined in `prisma/schema.prisma`.
 
-### `Product`
-```
-id, name, sku, barcode, price (Decimal), cost (Decimal),
-stock, lowStockThreshold, category, imageUrl, active,
-supplierId (FK → Supplier), createdAt, updatedAt
-```
+Core enums:
+- `Role`: `ADMIN | CASHIER`
+- `SaleStatus`: `COMPLETED | VOIDED | REFUNDED`
+- `PaymentMethod`: `CASH | CARD | OTHER`
+- `StockAdjReason`: `RECEIVED | DAMAGED | THEFT | CORRECTION | OPENING_COUNT`
+- `LoyaltyLogType`: `EARN | REDEEM | ADJUST`
 
-### `Supplier`
-```
-id, name, email, phone, address, notes, createdAt, updatedAt
-+ products: Product[]
-```
+Core models (summary):
 
-### `Sale`
-```
-id, receiptNumber, status (COMPLETED | VOIDED | REFUNDED),
-subtotal, taxAmount, discountAmount, tipAmount, total,
-paymentMethod (CASH | CARD | OTHER), paymentLines (JSON — split tender),
-amountTendered, changeDue, notes,
-userId (FK → User), customerId (FK → Customer, optional),
-loyaltyPointsUsed, createdAt
-+ items: SaleItem[]
-```
+### Product
+- `id, name, sku, barcode, price, cost, stock, category, imageUrl, lowStockThreshold, active, supplierId, createdAt, updatedAt`
 
-### `SaleItem`
-```
-id, saleId, productId (nullable), name (snapshot), sku (snapshot),
-quantity, price (at time of sale), total, notes
-```
+### Supplier
+- `id, name, contactName, phone, email, notes, createdAt, updatedAt`
 
-### `StockAdjustment`
-```
-id, productId (FK → Product), userId (FK → User),
-delta (positive = add, negative = remove),
-reason (RECEIVED | DAMAGED | THEFT | CORRECTION | OPENING_COUNT),
-note, createdAt
-```
+### Customer
+- `id, name, phone, email, notes, loyaltyPoints, createdAt, updatedAt`
 
-### `Customer`
-```
-id, name, email, phone, notes,
-loyaltyPoints, createdAt, updatedAt
-+ sales: Sale[]
-```
+### Sale
+- `id, userId, customerId, subtotal, taxRate, taxAmount, discountAmount, tipAmount, total, paymentMethod, paymentLines (Json), amountTendered, changeDue, status, voidReason, notes, createdAt`
 
-### `HeldOrder`
-```
-id, label, items (JSON — cart snapshot), createdAt
-```
+### SaleItem
+- `id, saleId, productId, name, price, quantity, total, notes`
 
-### `BusinessSettings` (singleton — id = "singleton")
-```
-businessName, logoUrl, primaryColor, accentColor,
-currency, currencyDecimals, taxRate, taxName,
-receiptFooter, language, setupComplete,
-loyaltyEnabled, loyaltyEarnRate, loyaltyRedeemValue, loyaltyMaxRedeemPercent
-```
+### Refund
+- `id, saleId, userId, amount, reason, items (Json), restoreStock, createdAt`
 
-### `User` (managed by Better Auth)
-```
-id, name, email, emailVerified, image,
-role (ADMIN | CASHIER), createdAt, updatedAt
-```
+### HeldOrder
+- `id, label, cartSnapshot (Json), createdAt`
 
----
+### StockAdjustment
+- `id, productId, userId, delta, reason, note, createdAt`
 
-## Authentication Flow
+### LoyaltyLog
+- `id, customerId, saleId, delta, type, note, createdAt`
 
-1. User submits credentials on `/login`.
-2. `signIn.email()` (Better Auth client) sends `POST /api/auth/sign-in/email`.
-3. Better Auth validates credentials, creates a session in the `Session` table, and sets an `httpOnly` session cookie.
-4. Browser performs a hard navigation to `/pos` (via `window.location.href`) to ensure the cookie is captured.
-5. `src/proxy.ts` (Edge runtime route guard) runs on every request and checks for the session cookie. If absent → redirect to `/login`.
-6. Server Components call `auth.api.getSession({ headers })` for full session/user data when needed.
+### BusinessSettings (singleton row)
+- `id="singleton"`
+- Branding and locale: `name, logoUrl, primaryColor, accentColor, language`
+- Financial: `currency, currencyDecimals, taxRate, taxName, receiptFooter`
+- Loyalty: `loyaltyEnabled, loyaltyEarnRate, loyaltyRedeemValue`
+- Inventory/storage/setup: `lowStockThreshold, storageProvider, storageRegion, storageBucket, storageEndpoint, storageAccessKey, storageSecretKey, storagePublicUrl, setupComplete`
+- Timestamps: `createdAt, updatedAt`
 
-**Roles:**
-- `ADMIN` — full access including settings, reports, product management.
-- `CASHIER` — POS and own sales history only. Attempts to access admin-only routes redirect to `/pos`.
+Auth models (Better Auth):
+- `User, Session, Account, Verification`
 
 ---
 
 ## Offline Architecture
 
-Olgax POS uses **PGLite** — a full Postgres database compiled to WebAssembly — running entirely in the browser.
+Offline stack:
+- Browser PGLite instance at `idb://olgax-pos`
+- Local tables:
+  - `sync_queue` for queued writes (`endpoint`, `method`, `payload`, status fields)
+  - `products_cache` for offline product lookup
+- Sync engine in `src/lib/sync.ts`
+- Connectivity and replay orchestration in `src/hooks/use-online-status.ts`
 
-```
-Browser
-  ├── PGLite (IndexedDB-backed Postgres WASM)
-  │     ├── products cache
-  │     └── offline_queue table (pending writes)
-  └── sync.ts
-        └── on `window.online` → replay queue → POST to server API
-```
-
-When the device goes offline:
-1. New sales are written to PGLite's `offline_queue`.
-2. The `SyncStatusBadge` shows **"Offline"**.
-
-When the device comes back online:
-1. `useOnlineStatus` hook detects the `online` event.
-2. `replayOfflineQueue()` replays each queued write to the server API.
-3. Status transitions: `syncing` → `synced` (or `error`).
+Behavior:
+1. When offline writes are queued, they are stored in `sync_queue`.
+2. On connectivity regain, `replayOfflineQueue()` replays queued requests.
+3. Status transitions are exposed as `offline | syncing | synced` for UI badges.
+4. Product cache seeding is attempted from the API when online.
 
 ---
 
-## Caching Strategy
+## Internationalization
 
-Next.js caching is aggressively opted-out for all data-fetching pages to ensure fresh data on every navigation:
+- Implemented with `next-intl` using `src/i18n/request.ts`.
+- Locale selection order:
+  1. `olgax_locale` cookie
+  2. `BusinessSettings.language`
+  3. fallback `en`
+- Supported locales in code:
+  - `en, si, ta, fr, es, de, ar, zh, hi, pt, ja, ko, id, ru`
+- Messages are loaded from `messages/<locale>.json`.
+- Locale cookie writes are done via Server Action: `src/app/actions/locale-actions.ts`.
 
-```typescript
-// Applied to every page and layout that fetches data:
-export const dynamic = "force-dynamic";
+---
 
-export default async function Page() {
-  noStore(); // from "next/cache" — busts prefetch cache too
-  // ...fetch data
+## Plugin System
+
+- Lightweight in-process hook registry in `src/lib/plugins.ts`.
+- Current hook names:
+  - `onSaleComplete`
+  - `onProductUpdate`
+  - `onCheckoutRender`
+- Plugin manifests are represented via `PluginManifest` type and surfaced in settings UI (`PluginsPanel`).
+- Example plugin exists under `plugins/example`.
+
+---
+
+## Caching and Rendering
+
+- Dynamic rendering is used for server data pages (`export const dynamic = "force-dynamic"`).
+- `unstable_noStore()` is used in server pages that fetch frequently changing data.
+- Router dynamic cache is disabled in `next.config.ts`:
+
+```ts
+experimental: {
+  staleTimes: {
+    dynamic: 0,
+  },
 }
 ```
 
-Additionally, sidebar `<Link>` components use `prefetch={false}` to prevent Next.js from pre-loading stale RSC payloads for authenticated pages.
+- Sidebar links use `prefetch={false}` to avoid stale prefetch payloads.
+- Service worker is registered in root layout and served from `public/sw.js`.
 
-The router cache is disabled globally via `next.config.ts`:
+---
 
-```typescript
-experimental: {
-  staleTimes: { dynamic: 0 },
-},
-```
+## Testing
+
+Test stack:
+- Unit/integration: Vitest (`src/tests/*.test.ts`)
+- E2E: Playwright (`src/tests/e2e/*.spec.ts`)
+
+Current test coverage includes:
+- Cart behavior
+- Loyalty and refund logic
+- Offline sync behavior
+- Auth flow
+- Products, sales, receipts, split payments, offline E2E paths

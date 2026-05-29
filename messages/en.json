@@ -180,5 +180,20 @@
     "of": "of",
     "enabled": "Enabled",
     "disabled": "Disabled"
+  },
+  "profile": {
+    "title": "Profile",
+    "subtitle": "Manage your account settings",
+    "account_info": "Account Information",
+    "account_info_desc": "Your personal account details",
+    "edit": "Edit",
+    "name": "Name",
+    "email": "Email",
+    "role": "Role",
+    "security": "Security",
+    "security_desc": "Manage your password and security settings",
+    "password": "Password",
+    "password_desc": "Change your password regularly for security",
+    "change_password": "Change Password"
   }
 }

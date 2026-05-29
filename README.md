@@ -3,6 +3,7 @@
   <p>Open-source, offline-capable Point of Sale system — free forever for self-hosted deployments.</p>
   <p>
     <a href="https://olgax.com">olgax.com</a> ·
+    <a href="https://discord.gg/rPxUns93g">Discord Community</a> ·
     <a href="docs/getting-started.md">Getting Started</a> ·
     <a href="docs/architecture.md">Architecture</a> ·
     <a href="docs/deployment.md">Deployment</a> ·
@@ -13,6 +14,7 @@
     <img alt="Version 0.1" src="https://img.shields.io/badge/version-0.1--MVP-orange.svg" />
     <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-black.svg" />
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" />
+    <a href="https://discord.gg/rPxUns93g"><img alt="Discord" src="https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white" /></a>
   </p>
 </div>
 
@@ -75,6 +77,18 @@ open http://localhost:3000
 ```
 
 The first time you open the app you will be guided through a setup wizard that migrates the database and creates your admin account.
+
+---
+
+## Quick Start (Serverless — Vercel / Netlify)
+
+You can run Olgax POS serverless without Docker or a VPS:
+
+1. **Fork or Use Template**: Click **Fork** or **Use this template** at the top of this repository to create a copy in your own account.
+2. **Deploy**: Import your copy into **Vercel** or **Netlify**.
+3. **Database**: Use a managed database provider like Neon or Supabase (using a pooled `DATABASE_URL` and a direct `DIRECT_URL`).
+
+See the [Deployment Guide](docs/deployment.md#serverless-deployments-vercel--netlify) for detailed instructions.
 
 ---
 

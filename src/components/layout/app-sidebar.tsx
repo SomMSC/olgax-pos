@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   ShoppingCart,
@@ -12,7 +12,9 @@ import {
   LogOut,
   Users,
   Truck,
+  Loader2,
 } from "lucide-react";
+import { useState } from "react";
 import { signOut } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
@@ -37,10 +39,28 @@ const navItems = [
 
 export function AppSidebar({ user, onLinkClick }: AppSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const t = useTranslations("nav");
   const role = user.role ?? "CASHIER";
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const visibleNav = navItems.filter((item) => item.roles.includes(role));
+
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Sign out error:", error);
+      setIsSigningOut(false);
+    }
+  };
+
+  const handleProfileClick = () => {
+    router.push("/settings/profile");
+    onLinkClick?.();
+  };
 
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r bg-sidebar">
@@ -83,7 +103,10 @@ export function AppSidebar({ user, onLinkClick }: AppSidebarProps) {
 
       {/* User footer */}
       <div className="border-t border-sidebar-border p-3 space-y-2">
-        <div className="flex items-center gap-2.5 px-2 py-1">
+        <button
+          onClick={handleProfileClick}
+          className="w-full flex items-center gap-2.5 px-2 py-1 rounded-lg hover:bg-sidebar-accent transition-colors text-left"
+        >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
             {(user.name || user.email).charAt(0).toUpperCase()}
           </div>
@@ -91,13 +114,18 @@ export function AppSidebar({ user, onLinkClick }: AppSidebarProps) {
             <p className="text-sm font-medium leading-none truncate text-sidebar-foreground">{user.name}</p>
             <p className="text-xs text-sidebar-foreground/50 truncate mt-0.5">{user.email}</p>
           </div>
-        </div>
+        </button>
         <button
-          onClick={() => signOut()}
-          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+          onClick={handleSignOut}
+          disabled={isSigningOut}
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <LogOut className="h-4 w-4" />
-          Sign out
+          {isSigningOut ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <LogOut className="h-4 w-4" />
+          )}
+          {isSigningOut ? "Signing out..." : "Sign out"}
         </button>
       </div>
     </aside>
