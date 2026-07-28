@@ -1,16 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
+// Explicit field allow-list — never expose cost, supplierId, or timestamps
+// to this client-facing endpoint.
+const PRODUCT_SELECT = {
+  id: true,
+  name: true,
+  price: true,
+  stock: true,
+  sku: true,
+  barcode: true,
+  category: true,
+  imageUrl: true,
+} as const;
+
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 200;
+
+function parseLimit(req: NextRequest): number {
+  const raw = Number(req.nextUrl.searchParams.get("limit"));
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_LIMIT;
+  return Math.min(raw, MAX_LIMIT);
+}
+
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q") ?? "";
+  const take = parseLimit(req);
 
   if (!q.trim()) {
     const products = await prisma.product.findMany({
-      where: {
-        active: true
-      },
-      orderBy: {name: "asc"}
-
+      where: { active: true },
+      select: PRODUCT_SELECT,
+      orderBy: { name: "asc" },
+      take,
     });
     return NextResponse.json(
       products.map((p: typeof products[number]) => ({ ...p, price: parseFloat(p.price.toString()) }))
@@ -26,15 +48,8 @@ export async function GET(req: NextRequest) {
         { barcode: { equals: q } },
       ],
     },
-    select: {
-      id: true,
-      name: true,
-      price: true,
-      stock: true,
-      sku: true,
-      barcode: true,
-    },
-    take: 20,
+    select: PRODUCT_SELECT,
+    take,
     orderBy: { name: "asc" },
   });
 
