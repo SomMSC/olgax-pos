@@ -14,7 +14,7 @@
     <img alt="Version 0.1" src="https://img.shields.io/badge/version-0.1--MVP-orange.svg" />
     <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-black.svg" />
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" />
-    <a href="https://discord.gg/rPxUns93g"><img alt="Discord" src="https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white" /></a>
+    <a href="https://discord.com/invite/EAXcCXgUz2"><img alt="Discord" src="https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white" /></a>
   </p>
 </div>
 
