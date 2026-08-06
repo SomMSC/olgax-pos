@@ -3,7 +3,7 @@
   <p>Open-source, offline-capable Point of Sale system — free forever for self-hosted deployments.</p>
   <p>
     <a href="https://olgax.com">olgax.com</a> ·
-    <a href="https://discord.gg/rPxUns93g">Discord Community</a> ·
+    <a href="https://discord.gg/EAXcCXgUz2">Discord Community</a> ·
     <a href="docs/getting-started.md">Getting Started</a> ·
     <a href="docs/architecture.md">Architecture</a> ·
     <a href="docs/deployment.md">Deployment</a> ·
