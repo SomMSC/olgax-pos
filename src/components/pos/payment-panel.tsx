@@ -9,7 +9,7 @@ interface PaymentPanelProps {
   onSaleComplete?: (saleId: string) => void;
 }
 
-export default function PaymentPanel({
+export function PaymentPanel({
   onClear,
   onSaleComplete,
 }: PaymentPanelProps) {
@@ -27,21 +27,25 @@ export default function PaymentPanel({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkoutLocked, setCheckoutLocked] = useState(false);
+  const [checkoutLocked, setCheckoutLocked] =
+    useState(false);
 
-  const checkoutIdRef = useRef<string | null>(null);
+  const checkoutIdRef =
+    useRef<string | null>(null);
 
   const subtotal = items.reduce(
     (sum, item) =>
-      sum + Number(item.price) * Number(item.quantity),
+      sum +
+      Number(item.price) *
+        Number(item.quantity),
     0
   );
 
-  const taxRate = 0;
-  const effectiveTaxRate = taxRate;
+  const effectiveTaxRate = 0;
 
   const taxAmount =
-    subtotal * (effectiveTaxRate / 100);
+    subtotal *
+    (effectiveTaxRate / 100);
 
   const tipAmount = 0;
 
@@ -125,7 +129,9 @@ export default function PaymentPanel({
     };
 
     const MAX_ATTEMPTS = 3;
-    let lastError: Error | null = null;
+
+    let lastError: Error | null =
+      null;
 
     for (
       let attempt = 1;
@@ -151,7 +157,8 @@ export default function PaymentPanel({
 
         if (!res.ok) {
           throw new Error(
-            typeof resp.error === "string"
+            typeof resp.error ===
+              "string"
               ? resp.error
               : "Failed to record payment."
           );
@@ -174,6 +181,7 @@ export default function PaymentPanel({
         }
 
         router.refresh();
+
         return;
       } catch (err) {
         lastError =
@@ -243,6 +251,7 @@ export default function PaymentPanel({
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>Subtotal</span>
+
             <span>
               ₱{subtotal.toFixed(2)}
             </span>
@@ -251,6 +260,7 @@ export default function PaymentPanel({
           {discount > 0 && (
             <div className="flex justify-between text-sm">
               <span>Discount</span>
+
               <span>
                 -₱{discount.toFixed(2)}
               </span>
@@ -259,6 +269,7 @@ export default function PaymentPanel({
 
           <div className="flex justify-between text-sm">
             <span>Tax</span>
+
             <span>
               ₱{taxAmount.toFixed(2)}
             </span>
@@ -266,6 +277,7 @@ export default function PaymentPanel({
 
           <div className="flex justify-between border-t pt-3 text-lg font-bold">
             <span>Total</span>
+
             <span>
               ₱{tot.toFixed(2)}
             </span>
@@ -302,7 +314,9 @@ export default function PaymentPanel({
       <button
         type="button"
         onClick={() => {
-          if (loading) return;
+          if (loading) {
+            return;
+          }
 
           clearCart();
           onClear();
