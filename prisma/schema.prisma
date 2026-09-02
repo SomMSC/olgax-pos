@@ -120,21 +120,29 @@ model Product {
 }
 
 // ============================================================
-// Customer
+// Buyer
 // ============================================================
 
-model Customer {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String?  @unique
-  email     String?  @unique
-  notes     String?
-  loyaltyPoints Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum BuyerType {
+  STUDENT
+  STAFF
+}
 
-  sales         Sale[]
-  loyaltyLogs   LoyaltyLog[]
+model Buyer {
+  id        String     @id @default(cuid())
+  name      String
+  type      BuyerType
+  schoolId  String?
+  staffId   String?
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  sales Sale[]
+
+  @@index([name])
+  @@index([schoolId])
+  @@index([staffId])
 }
 
 // ============================================================
@@ -144,7 +152,7 @@ model Customer {
 model Sale {
   id             String        @id @default(cuid())
   userId         String
-  customerId     String?
+  buyerId        String?
   subtotal       Decimal       @db.Decimal(10, 2)
   taxRate        Decimal       @default(0) @db.Decimal(5, 2)
   taxAmount      Decimal       @db.Decimal(10, 2)
@@ -161,10 +169,9 @@ model Sale {
   createdAt      DateTime      @default(now())
 
   user     User      @relation(fields: [userId], references: [id])
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  buyer    Buyer?    @relation(fields: [buyerId], references: [id], onDelete: SetNull)
   items    SaleItem[]
   refunds  Refund[]
-  loyaltyLogs LoyaltyLog[]
 }
 
 model SaleItem {
@@ -190,29 +197,6 @@ model HeldOrder {
   label        String?
   cartSnapshot Json
   createdAt    DateTime @default(now())
-}
-
-// ============================================================
-// Loyalty
-// ============================================================
-
-enum LoyaltyLogType {
-  EARN
-  REDEEM
-  ADJUST
-}
-
-model LoyaltyLog {
-  id         String          @id @default(cuid())
-  customerId String
-  saleId     String?
-  delta      Int
-  type       LoyaltyLogType
-  note       String?
-  createdAt  DateTime        @default(now())
-
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  sale     Sale?    @relation(fields: [saleId], references: [id], onDelete: SetNull)
 }
 
 // ============================================================
@@ -287,10 +271,6 @@ model BusinessSettings {
   taxName          String   @default("Tax")
   receiptFooter    String   @default("Thank you for your purchase!")
   language         String   @default("en")
-  // Loyalty
-  loyaltyEnabled   Boolean  @default(false)
-  loyaltyEarnRate  Decimal  @default(1) @db.Decimal(8, 4)  // points per $1 spent
-  loyaltyRedeemValue Decimal @default(100) @db.Decimal(8, 4) // points per $1 discount
   // Low-stock
   lowStockThreshold Int     @default(5)
   // Image storage
