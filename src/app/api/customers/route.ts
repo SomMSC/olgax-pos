@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { CustomerType } from "@/generated/prisma";
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({
@@ -18,11 +19,13 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   const search = searchParams.get("search")?.trim() || "";
-  const type = searchParams.get("type");
+  const typeParam = searchParams.get("type");
+
   const page = Math.max(
     1,
     Number.parseInt(searchParams.get("page") || "1", 10) || 1
   );
+
   const limit = Math.min(
     100,
     Math.max(
@@ -32,6 +35,13 @@ export async function GET(request: NextRequest) {
   );
 
   const skip = (page - 1) * limit;
+
+  const customerType =
+    typeParam === "STUDENT"
+      ? CustomerType.STUDENT
+      : typeParam === "STAFF"
+        ? CustomerType.STAFF
+        : undefined;
 
   const where = {
     ...(search
@@ -58,8 +68,8 @@ export async function GET(request: NextRequest) {
           ],
         }
       : {}),
-    ...(type === "STUDENT" || type === "STAFF"
-      ? { type }
+    ...(customerType !== undefined
+      ? { type: customerType }
       : {}),
   };
 
@@ -135,12 +145,16 @@ export async function POST(request: NextRequest) {
   }
 
   const name =
-    typeof body.name === "string" ? body.name.trim() : "";
+    typeof body.name === "string"
+      ? body.name.trim()
+      : "";
 
   const type =
-    body.type === "STUDENT" || body.type === "STAFF"
-      ? body.type
-      : null;
+    body.type === "STUDENT"
+      ? CustomerType.STUDENT
+      : body.type === "STAFF"
+        ? CustomerType.STAFF
+        : null;
 
   const schoolId =
     typeof body.schoolId === "string"
@@ -166,14 +180,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (type === "STUDENT" && !schoolId) {
+  if (type === CustomerType.STUDENT && !schoolId) {
     return NextResponse.json(
       { error: "School ID is required for students" },
       { status: 400 }
     );
   }
 
-  if (type === "STAFF" && !staffId) {
+  if (type === CustomerType.STAFF && !staffId) {
     return NextResponse.json(
       { error: "Staff ID is required for staff" },
       { status: 400 }
@@ -185,8 +199,14 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         type,
-        schoolId: type === "STUDENT" ? schoolId : null,
-        staffId: type === "STAFF" ? staffId : null,
+        schoolId:
+          type === CustomerType.STUDENT
+            ? schoolId
+            : null,
+        staffId:
+          type === CustomerType.STAFF
+            ? staffId
+            : null,
       },
     });
 
