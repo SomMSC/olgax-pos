@@ -48,17 +48,24 @@ export default async function CustomerProfilePage({
         { label: customer.name },
       ]} />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Profile */}
-        <div className="md:col-span-1 rounded-lg border bg-card p-5 space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">{customer.name}</h2>
-              {customer.phone && <p className="text-sm text-muted-foreground">{customer.phone}</p>}
-              {customer.email && <p className="text-sm text-muted-foreground">{customer.email}</p>}
-              {customer.notes && (
-                <p className="text-xs italic text-muted-foreground mt-2">{customer.notes}</p>
-              )}
+    <div>
+  <h2 className="text-lg font-semibold">{customer.name}</h2>
+
+  <p className="text-sm text-muted-foreground">
+    {customer.type === "STUDENT" ? "Student" : "Staff"}
+  </p>
+
+  {customer.schoolId && (
+    <p className="text-sm text-muted-foreground">
+      School ID: {customer.schoolId}
+    </p>
+  )}
+
+  {customer.staffId && (
+    <p className="text-sm text-muted-foreground">
+      Staff ID: {customer.staffId}
+    </p>
+  )}
             </div>
           </div>
           <div className="border-t pt-4 grid grid-cols-2 gap-3">
