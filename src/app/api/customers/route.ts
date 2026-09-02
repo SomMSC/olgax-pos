@@ -2,102 +2,212 @@ import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { z } from "zod";
 
-// ---- GET /api/customers?q=search&page=1&limit=20 ----
-export async function GET(req: NextRequest) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { searchParams } = req.nextUrl;
-  const q = searchParams.get("q") ?? "";
-  const page = parseInt(searchParams.get("page") ?? "1");
-  const limit = parseInt(searchParams.get("limit") ?? "20");
-  const skip = (page - 1) * limit;
-
-  const where = q
-    ? {
-        OR: [
-          { name: { contains: q, mode: "insensitive" } as const },
-          { phone: { contains: q, mode: "insensitive" } as const },
-          { email: { contains: q, mode: "insensitive" } as const },
-        ],
-      }
-    : undefined;
-
-  const [customers, total] = await Promise.all([
-    prisma.customer.findMany({
-      where,
-      orderBy: { name: "asc" },
-      skip,
-      take: limit,
-      select: { id: true, name: true, phone: true, email: true, loyaltyPoints: true, notes: true, createdAt: true },
-    }),
-    prisma.customer.count({ where }),
-  ]);
-
-  // Enrich with sales stats
-  const customerIds = customers.map((c) => c.id);
-  const salesStats = await prisma.sale.groupBy({
-    by: ["customerId"],
-    where: { customerId: { in: customerIds }, status: "COMPLETED" },
-    _sum: { total: true },
-    _max: { createdAt: true },
-    _count: { id: true },
+export async function GET(request: NextRequest) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
   });
 
-  const enriched = customers.map((c) => {
-    const stat = salesStats.find((s) => s.customerId === c.id);
-    return {
-      ...c,
-      totalSpend: stat?._sum.total?.toNumber() ?? 0,
-      lastVisit: stat?._max.createdAt ?? null,
-      visitCount: stat?._count.id ?? 0,
-    };
-  });
-
-  return NextResponse.json({
-    customers: enriched,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
-  });
-}
-
-// ---- POST /api/customers (quick-create) ----
-const createSchema = z.object({
-  name: z.string().min(1),
-  phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")),
-  notes: z.string().optional(),
-});
-
-export async function POST(req: NextRequest) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const body = await req.json();
-  const parsed = createSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  if (!session) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
-  const { name, phone, email, notes } = parsed.data;
+  const { searchParams } = new URL(request.url);
+
+  const search = searchParams.get("search")?.trim() || "";
+  const type = searchParams.get("type");
+  const page = Math.max(
+    1,
+    Number.parseInt(searchParams.get("page") || "1", 10) || 1
+  );
+  const limit = Math.min(
+    100,
+    Math.max(
+      1,
+      Number.parseInt(searchParams.get("limit") || "20", 10) || 20
+    )
+  );
+
+  const skip = (page - 1) * limit;
+
+  const where = {
+    ...(search
+      ? {
+          OR: [
+            {
+              name: {
+                contains: search,
+                mode: "insensitive" as const,
+              },
+            },
+            {
+              schoolId: {
+                contains: search,
+                mode: "insensitive" as const,
+              },
+            },
+            {
+              staffId: {
+                contains: search,
+                mode: "insensitive" as const,
+              },
+            },
+          ],
+        }
+      : {}),
+    ...(type === "STUDENT" || type === "STAFF"
+      ? { type }
+      : {}),
+  };
+
+  try {
+    const [customers, total] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        orderBy: {
+          name: "asc",
+        },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          schoolId: true,
+          staffId: true,
+          active: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+
+      prisma.customer.count({
+        where,
+      }),
+    ]);
+
+    return NextResponse.json({
+      customers,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get customers error:", error);
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch customers",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  const body = await request.json().catch(() => null);
+
+  if (!body) {
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 }
+    );
+  }
+
+  const name =
+    typeof body.name === "string" ? body.name.trim() : "";
+
+  const type =
+    body.type === "STUDENT" || body.type === "STAFF"
+      ? body.type
+      : null;
+
+  const schoolId =
+    typeof body.schoolId === "string"
+      ? body.schoolId.trim() || null
+      : null;
+
+  const staffId =
+    typeof body.staffId === "string"
+      ? body.staffId.trim() || null
+      : null;
+
+  if (name.length < 2) {
+    return NextResponse.json(
+      { error: "Name must be at least 2 characters" },
+      { status: 400 }
+    );
+  }
+
+  if (!type) {
+    return NextResponse.json(
+      { error: "Customer type must be STUDENT or STAFF" },
+      { status: 400 }
+    );
+  }
+
+  if (type === "STUDENT" && !schoolId) {
+    return NextResponse.json(
+      { error: "School ID is required for students" },
+      { status: 400 }
+    );
+  }
+
+  if (type === "STAFF" && !staffId) {
+    return NextResponse.json(
+      { error: "Staff ID is required for staff" },
+      { status: 400 }
+    );
+  }
 
   try {
     const customer = await prisma.customer.create({
-      data: { name, phone: phone || null, email: email || null, notes: notes || null },
-      select: { id: true, name: true, phone: true, email: true },
+      data: {
+        name,
+        type,
+        schoolId: type === "STUDENT" ? schoolId : null,
+        staffId: type === "STAFF" ? staffId : null,
+      },
     });
-    return NextResponse.json({ customer }, { status: 201 });
-  } catch (e: unknown) {
-    const err = e as { code?: string };
-    if (err.code === "P2002") {
-      return NextResponse.json({ error: "Phone or email already in use" }, { status: 409 });
-    }
-    throw e;
+
+    return NextResponse.json(
+      {
+        ok: true,
+        customer,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error("Create customer error:", error);
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create customer",
+      },
+      { status: 500 }
+    );
   }
 }
