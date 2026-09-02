@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { CustomerType } from "@/generated/prisma";
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({
@@ -36,46 +36,35 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    let customerType: CustomerType | undefined;
+    // Build a properly typed Prisma Customer filter.
+    const where: Prisma.CustomerWhereInput = {};
 
-    if (type === "STUDENT") {
-      customerType = CustomerType.STUDENT;
-    } else if (type === "STAFF") {
-      customerType = CustomerType.STAFF;
+    if (type === "STUDENT" || type === "STAFF") {
+      where.type = type;
     }
 
-    const where = {
-      ...(customerType
-        ? {
-            type: customerType,
-          }
-        : {}),
-
-      ...(search
-        ? {
-            OR: [
-              {
-                name: {
-                  contains: search,
-                  mode: "insensitive" as const,
-                },
-              },
-              {
-                schoolId: {
-                  contains: search,
-                  mode: "insensitive" as const,
-                },
-              },
-              {
-                staffId: {
-                  contains: search,
-                  mode: "insensitive" as const,
-                },
-              },
-            ],
-          }
-        : {}),
-    };
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          schoolId: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          staffId: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ];
+    }
 
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
@@ -115,12 +104,8 @@ export async function GET(request: NextRequest) {
     console.error("Customers GET error:", error);
 
     return NextResponse.json(
-      {
-        error: "Failed to fetch customers",
-      },
-      {
-        status: 500,
-      }
+      { error: "Failed to fetch customers" },
+      { status: 500 }
     );
   }
 }
@@ -158,31 +143,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let customerType: CustomerType;
-
-    if (type === "STUDENT") {
-      customerType = CustomerType.STUDENT;
-    } else if (type === "STAFF") {
-      customerType = CustomerType.STAFF;
-    } else {
+    if (type !== "STUDENT" && type !== "STAFF") {
       return NextResponse.json(
         {
           error: "Type must be STUDENT or STAFF",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
     const customer = await prisma.customer.create({
       data: {
         name,
-        type: customerType,
+        type,
         schoolId,
         staffId,
       },
-
       select: {
         id: true,
         name: true,
@@ -202,12 +178,8 @@ export async function POST(request: NextRequest) {
     console.error("Customers POST error:", error);
 
     return NextResponse.json(
-      {
-        error: "Failed to create customer",
-      },
-      {
-        status: 500,
-      }
+      { error: "Failed to create customer" },
+      { status: 500 }
     );
   }
 }
