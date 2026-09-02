@@ -16,167 +16,51 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
+    const customerId = searchParams.get("customerId");
 
-    const search = searchParams.get("search")?.trim() || "";
-    const type = searchParams.get("type")?.trim() || "";
-
-    const page = Math.max(
-      1,
-      parseInt(searchParams.get("page") || "1", 10)
-    );
-
-    const limit = Math.min(
-      100,
-      Math.max(
-        1,
-        parseInt(searchParams.get("limit") || "25", 10)
-      )
-    );
-
-    const skip = (page - 1) * limit;
-
-    const where = {
-      ...(type === "STUDENT" || type === "STAFF"
-        ? { type: type as "STUDENT" | "STAFF" }
-        : {}),
-
-      ...(search
-        ? {
-            OR: [
-              {
-                name: {
-                  contains: search,
-                  mode: "insensitive" as const,
-                },
-              },
-              {
-                schoolId: {
-                  contains: search,
-                  mode: "insensitive" as const,
-                },
-              },
-              {
-                staffId: {
-                  contains: search,
-                  mode: "insensitive" as const,
-                },
-              },
-            ],
-          }
-        : {}),
-    };
-
-    const [customers, total] = await Promise.all([
-      prisma.customer.findMany({
-        where,
-        orderBy: {
-          name: "asc",
-        },
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          name: true,
-          type: true,
-          schoolId: true,
-          staffId: true,
-          active: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-
-      prisma.customer.count({
-        where,
-      }),
-    ]);
-
-    return NextResponse.json({
-      customers,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
-  } catch (error) {
-    console.error("Customers GET error:", error);
-
-    return NextResponse.json(
-      { error: "Failed to fetch customers" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-  });
-
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
-  }
-
-  try {
-    const body = await request.json();
-
-    const name = String(body.name || "").trim();
-    const type = String(body.type || "").trim();
-
-    const schoolId = body.schoolId
-      ? String(body.schoolId).trim()
-      : null;
-
-    const staffId = body.staffId
-      ? String(body.staffId).trim()
-      : null;
-
-    if (!name) {
+    if (!customerId) {
       return NextResponse.json(
-        { error: "Name is required" },
+        { error: "customerId is required" },
         { status: 400 }
       );
     }
 
-    if (type !== "STUDENT" && type !== "STAFF") {
-      return NextResponse.json(
-        { error: "Type must be STUDENT or STAFF" },
-        { status: 400 }
-      );
-    }
-
-    const customer = await prisma.customer.create({
-      data: {
-        name,
-        type: type as "STUDENT" | "STAFF",
-        schoolId,
-        staffId,
-      },
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
       select: {
         id: true,
         name: true,
         type: true,
-        schoolId: true,
-        staffId: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true,
       },
     });
 
-    return NextResponse.json(customer, {
-      status: 201,
+    if (!customer) {
+      return NextResponse.json(
+        { error: "Customer not found" },
+        { status: 404 }
+      );
+    }
+
+    // Loyalty points are no longer stored on Customer.
+    // Return zero until a dedicated loyalty model is added.
+    return NextResponse.json({
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        type: customer.type,
+      },
+      loyalty: {
+        enabled: false,
+        points: 0,
+        earnRate: 0,
+        redeemValue: 0,
+      },
     });
   } catch (error) {
-    console.error("Customers POST error:", error);
+    console.error("Loyalty GET error:", error);
 
     return NextResponse.json(
-      { error: "Failed to create customer" },
+      { error: "Failed to fetch loyalty information" },
       { status: 500 }
     );
   }
