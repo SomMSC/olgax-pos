@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
         stock: {
           gt: 0,
         },
+
         ...(category
           ? {
               category: {
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
               },
             }
           : {}),
+
         ...(q
           ? {
               OR: [
@@ -47,14 +49,18 @@ export async function GET(request: NextRequest) {
                     contains: q,
                     mode: "insensitive",
                   },
+                },
               ],
             }
           : {}),
       },
+
       select: PRODUCT_SELECT,
+
       orderBy: {
         name: "asc",
       },
+
       take: 200,
     });
 
@@ -68,10 +74,13 @@ export async function GET(request: NextRequest) {
           not: null,
         },
       },
+
       select: {
         category: true,
       },
+
       distinct: ["category"],
+
       orderBy: {
         category: "asc",
       },
@@ -82,15 +91,19 @@ export async function GET(request: NextRequest) {
         ...product,
         price: Number(product.price),
       })),
+
       categories: categories
         .map((item) => item.category)
         .filter(
-          (category): category is string =>
-            Boolean(category)
+          (value): value is string =>
+            Boolean(value)
         ),
     });
   } catch (error) {
-    console.error("Store products error:", error);
+    console.error(
+      "Store products error:",
+      error
+    );
 
     return NextResponse.json(
       {
