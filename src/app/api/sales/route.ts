@@ -18,7 +18,9 @@ const saleSchema = z.object({
     )
     .min(1),
 
-  paymentMethod: z.enum(["CASH", "CARD", "OTHER"]).default("CASH"),
+  paymentMethod: z
+    .enum(["CASH", "CARD", "OTHER"])
+    .default("CASH"),
 
   amountTendered: z.number().optional(),
 
@@ -37,7 +39,9 @@ const saleSchema = z.object({
 
   discountAmount: z.number().min(0).default(0),
 
-  discountType: z.enum(["fixed", "percent"]).default("fixed"),
+  discountType: z
+    .enum(["fixed", "percent"])
+    .default("fixed"),
 
   note: z.string().optional(),
 
@@ -84,7 +88,7 @@ export async function POST(req: NextRequest) {
     } = parsed.data;
 
     // ----------------------------------------------------------
-    // Validate customer if one was attached to the sale
+    // Validate customer
     // ----------------------------------------------------------
 
     if (customerId) {
@@ -129,21 +133,26 @@ export async function POST(req: NextRequest) {
     // ----------------------------------------------------------
 
     const subtotal = items.reduce(
-      (sum, item) => sum + item.price * item.quantity,
+      (sum, item) =>
+        sum + item.price * item.quantity,
       0
     );
 
     const discountValue =
       discountType === "percent"
         ? (subtotal * discountAmount) / 100
-        : Math.min(discountAmount, subtotal);
+        : Math.min(
+            discountAmount,
+            subtotal
+          );
 
     const taxableSubtotal = Math.max(
       0,
       subtotal - discountValue
     );
 
-    const taxAmt = taxableSubtotal * taxRate;
+    const taxAmt =
+      taxableSubtotal * taxRate;
 
     const total =
       taxableSubtotal +
@@ -151,13 +160,15 @@ export async function POST(req: NextRequest) {
       (tipAmount ?? 0);
 
     // ----------------------------------------------------------
-    // Calculate amount paid and change
+    // Calculate payment and change
     // ----------------------------------------------------------
 
     const paidTotal =
-      paymentLines && paymentLines.length > 0
+      paymentLines &&
+      paymentLines.length > 0
         ? paymentLines.reduce(
-            (sum, payment) => sum + payment.amount,
+            (sum, payment) =>
+              sum + payment.amount,
             0
           )
         : (amountTendered ?? 0);
@@ -166,93 +177,122 @@ export async function POST(req: NextRequest) {
       effectiveMethod === "CASH" ||
       Boolean(
         paymentLines?.some(
-          (payment) => payment.method === "CASH"
+          (payment) =>
+            payment.method === "CASH"
         )
       );
 
     const changeDue = hasCashPayment
-      ? Math.max(0, paidTotal - total)
+      ? Math.max(
+          0,
+          paidTotal - total
+        )
       : undefined;
 
     // ----------------------------------------------------------
     // Create sale and update inventory atomically
     // ----------------------------------------------------------
 
-    const sale = await prisma.$transaction(async (tx) => {
-      const created = await tx.sale.create({
-        data: {
-          userId: session.user.id,
+    const sale =
+      await prisma.$transaction(
+        async (tx) => {
+          const created =
+            await tx.sale.create({
+              data: {
+                userId:
+                  session.user.id,
 
-          customerId: customerId || undefined,
+                customerId:
+                  customerId || undefined,
 
-          subtotal,
+                subtotal,
 
-          taxRate,
+                taxRate,
 
-          taxAmount: taxAmt,
+                taxAmount:
+                  taxAmt,
 
-          discountAmount: discountValue,
+                discountAmount:
+                  discountValue,
 
-          tipAmount: tipAmount ?? 0,
+                tipAmount:
+                  tipAmount ?? 0,
 
-          total,
+                total,
 
-          paymentMethod: effectiveMethod,
+                paymentMethod:
+                  effectiveMethod,
 
-          paymentLines:
-            paymentLines &&
-            paymentLines.length > 0
-              ? paymentLines
-              : undefined,
+                paymentLines:
+                  paymentLines &&
+                  paymentLines.length > 0
+                    ? paymentLines
+                    : undefined,
 
-          amountTendered:
-            amountTendered ??
-            (paidTotal > 0 ? paidTotal : undefined),
+                amountTendered:
+                  amountTendered ??
+                  (paidTotal > 0
+                    ? paidTotal
+                    : undefined),
 
-          changeDue,
+                changeDue,
 
-          notes: note,
+                notes: note,
 
-          items: {
-            create: items.map((item) => ({
-              productId: item.productId,
-              name: item.name,
-              price: item.price,
-              quantity: item.quantity,
-              total: item.price * item.quantity,
-              notes: item.notes ?? undefined,
-            })),
-          },
-        },
+                items: {
+                  create:
+                    items.map(
+                      (item) => ({
+                        productId:
+                          item.productId,
+                        name: item.name,
+                        price: item.price,
+                        quantity:
+                          item.quantity,
+                        total:
+                          item.price *
+                          item.quantity,
+                        notes:
+                          item.notes ??
+                          undefined,
+                      })
+                    ),
+                },
+              },
 
-        include: {
-          items: true,
-          customer: true,
-        },
-      });
+              include: {
+                items: true,
+              },
+            });
 
-      // --------------------------------------------------------
-      // Decrement stock
-      // --------------------------------------------------------
+          // ----------------------------------------------------
+          // Decrement stock
+          // ----------------------------------------------------
 
-      for (const item of items) {
-        await tx.product.update({
-          where: {
-            id: item.productId,
-          },
-          data: {
-            stock: {
-              decrement: item.quantity,
-            },
-          },
-        });
-      }
+          for (const item of items) {
+            await tx.product.update({
+              where: {
+                id: item.productId,
+              },
+              data: {
+                stock: {
+                  decrement:
+                    item.quantity,
+                },
+              },
+            });
+          }
 
-      return created;
-    });
+          return created;
+        }
+      );
 
     // ----------------------------------------------------------
     // Fire plugin hook
+    //
+    // loyaltyPointsUsed is retained only because the existing
+    // plugin payload type requires it. Loyalty is not stored or
+    // processed by this route.
     // ----------------------------------------------------------
 
     pluginRegistry
@@ -264,32 +304,44 @@ export async function POST(req: NextRequest) {
         ),
 
         taxAmount: parseFloat(
-          sale.taxAmount?.toString() ?? "0"
+          sale.taxAmount?.toString() ??
+            "0"
         ),
 
         tipAmount: parseFloat(
-          sale.tipAmount?.toString() ?? "0"
+          sale.tipAmount?.toString() ??
+            "0"
         ),
 
         items: sale.items.map(
           (item: {
-            productId: string | null;
+            productId:
+              | string
+              | null;
             name: string;
             quantity: number;
-            price: { toString(): string };
+            price: {
+              toString(): string;
+            };
           }) => ({
-            productId: item.productId,
+            productId:
+              item.productId,
             name: item.name,
-            quantity: item.quantity,
+            quantity:
+              item.quantity,
             price: parseFloat(
               item.price.toString()
             ),
           })
         ),
 
-        customerId: sale.customerId ?? null,
+        customerId:
+          sale.customerId ?? null,
 
-        paymentMethod: sale.paymentMethod,
+        paymentMethod:
+          sale.paymentMethod,
+
+        loyaltyPointsUsed: 0,
       })
       .catch(() => {
         // Plugin errors are handled internally.
@@ -307,7 +359,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        error: "Failed to create sale",
+        error:
+          "Failed to create sale",
       },
       { status: 500 }
     );
