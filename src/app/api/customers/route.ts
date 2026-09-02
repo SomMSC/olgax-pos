@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { CustomerType } from "@/generated/prisma";
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({
@@ -35,10 +36,13 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const customerType =
-      type === "STUDENT" || type === "STAFF"
-        ? type
-        : undefined;
+    let customerType: CustomerType | undefined;
+
+    if (type === "STUDENT") {
+      customerType = CustomerType.STUDENT;
+    } else if (type === "STAFF") {
+      customerType = CustomerType.STAFF;
+    }
 
     const where = {
       ...(customerType
@@ -154,7 +158,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (type !== "STUDENT" && type !== "STAFF") {
+    let customerType: CustomerType;
+
+    if (type === "STUDENT") {
+      customerType = CustomerType.STUDENT;
+    } else if (type === "STAFF") {
+      customerType = CustomerType.STAFF;
+    } else {
       return NextResponse.json(
         {
           error: "Type must be STUDENT or STAFF",
@@ -168,7 +178,7 @@ export async function POST(request: NextRequest) {
     const customer = await prisma.customer.create({
       data: {
         name,
-        type,
+        type: customerType,
         schoolId,
         staffId,
       },
