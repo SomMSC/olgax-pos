@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -36,35 +35,36 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    // Build a properly typed Prisma Customer filter.
-    const where: Prisma.CustomerWhereInput = {};
+    const where = {
+      ...(type === "STUDENT" || type === "STAFF"
+        ? { type: type as "STUDENT" | "STAFF" }
+        : {}),
 
-    if (type === "STUDENT" || type === "STAFF") {
-      where.type = type;
-    }
-
-    if (search) {
-      where.OR = [
-        {
-          name: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          schoolId: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          staffId: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-      ];
-    }
+      ...(search
+        ? {
+            OR: [
+              {
+                name: {
+                  contains: search,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                schoolId: {
+                  contains: search,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                staffId: {
+                  contains: search,
+                  mode: "insensitive" as const,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
 
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
@@ -145,9 +145,7 @@ export async function POST(request: NextRequest) {
 
     if (type !== "STUDENT" && type !== "STAFF") {
       return NextResponse.json(
-        {
-          error: "Type must be STUDENT or STAFF",
-        },
+        { error: "Type must be STUDENT or STAFF" },
         { status: 400 }
       );
     }
@@ -155,7 +153,7 @@ export async function POST(request: NextRequest) {
     const customer = await prisma.customer.create({
       data: {
         name,
-        type,
+        type: type as "STUDENT" | "STAFF",
         schoolId,
         staffId,
       },
