@@ -53,7 +53,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   try {
     // Check if customer has sales
-    const salesCount = await prisma.sale.count({ where: { customerId: id } });
+    const salesCount = await prisma.sale.count({ where: { buyerId: id } });
     if (salesCount > 0) {
       return NextResponse.json({ error: "Cannot delete customer with existing sales" }, { status: 400 });
     }
