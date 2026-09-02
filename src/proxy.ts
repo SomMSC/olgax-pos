@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Public routes that do not require a logged-in user.
+// Routes that anyone can access without logging in.
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
@@ -15,7 +15,7 @@ const PUBLIC_PATHS = [
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow Next.js internals & static assets.
+  // Allow Next.js internals and static assets.
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
@@ -30,28 +30,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check setup completion via cookie.
-  const setupDone =
-    request.cookies.get("olgax-setup-complete")?.value === "1";
-
-  const hasDbUrl = !!process.env.DATABASE_URL;
-  const hasAuthSecret = !!process.env.BETTER_AUTH_SECRET;
-
-  const isSetupPath =
-    pathname.startsWith("/setup") ||
-    pathname.startsWith("/api/setup");
-
-  // If setup is already complete, don't allow returning to setup.
-  if (setupDone && isSetupPath) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  // Auth routes must always be accessible.
-  if (pathname.startsWith("/api/auth")) {
-    return NextResponse.next();
-  }
-
-  // PUBLIC STORE MUST BE CHECKED BEFORE THE LOGIN REDIRECT.
+  // PUBLIC ROUTES MUST BE CHECKED BEFORE THE SETUP BARRIER.
+  // This allows /store to work in a completely new browser
+  // without a setup cookie or authentication cookie.
   if (
     PUBLIC_PATHS.some(
       (path) =>
@@ -61,7 +42,27 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // If setup is incomplete, send the user to setup.
+  // Check setup completion via cookie.
+  const setupDone =
+    request.cookies.get("olgax-setup-complete")?.value === "1";
+
+  const hasDbUrl = !!process.env.DATABASE_URL;
+  const hasAuthSecret = !!process.env.BETTER_AUTH_SECRET;
+
+  const isSetupPath =
+    pathname === "/setup" ||
+    pathname.startsWith("/setup/") ||
+    pathname === "/api/setup" ||
+    pathname.startsWith("/api/setup/");
+
+  // If setup is already complete, don't allow returning to setup.
+  if (setupDone && isSetupPath) {
+    return NextResponse.redirect(
+      new URL("/login", request.url)
+    );
+  }
+
+  // If setup is incomplete, force protected routes to setup.
   if (
     (!setupDone || !hasDbUrl || !hasAuthSecret) &&
     !isSetupPath
