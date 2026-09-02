@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import {
   PauseCircle,
   ClipboardList,
-  X,
   Percent,
   RotateCcw,
   Star,
@@ -31,7 +30,11 @@ const TIP_PRESETS = [
   { label: "20%", value: 20 },
 ];
 
-const PAYMENT_METHODS: PaymentMethod[] = ["CASH", "CARD", "OTHER"];
+const PAYMENT_METHODS: PaymentMethod[] = [
+  "CASH",
+  "CARD",
+  "OTHER",
+];
 
 export function PaymentPanel({
   taxRate,
@@ -47,7 +50,6 @@ export function PaymentPanel({
     items,
     paymentMethod,
     setPaymentMethod,
-    amountTendered,
     paymentLines,
     clearCart,
     tipAmount,
@@ -67,6 +69,20 @@ export function PaymentPanel({
   const [error, setError] = useState<string | null>(null);
   const [customTip, setCustomTip] = useState("");
   const [showTaxEdit, setShowTaxEdit] = useState(false);
+
+  /*
+   * PHASE 6
+   *
+   * This lock is separate from `loading`.
+   *
+   * `loading` controls the UI while the request is active.
+   *
+   * `checkoutLocked` prevents a second checkout from being
+   * started even if the browser fires multiple clicks before
+   * React has rendered the loading state.
+   */
+  const [checkoutLocked, setCheckoutLocked] =
+    useState(false);
 
   const [loyaltyInfo, setLoyaltyInfo] = useState<{
     points: number;
@@ -98,29 +114,52 @@ export function PaymentPanel({
       });
   }, [customerId, setLoyaltyPointsUsed]);
 
+  /*
+   * If the cart becomes empty, make sure the checkout lock
+   * is cleared so the next transaction can be completed.
+   */
+  useEffect(() => {
+    if (items.length === 0) {
+      setCheckoutLocked(false);
+      setLoading(false);
+      setError(null);
+    }
+  }, [items.length]);
+
   const tot = total(taxRate);
   const isEmpty = items.length === 0;
-  const effectiveTaxRate =
-    taxRateOverride !== null ? taxRateOverride : taxRate;
 
-  const sub = subtotal() - discountValue();
+  const effectiveTaxRate =
+    taxRateOverride !== null
+      ? taxRateOverride
+      : taxRate;
+
+  const sub =
+    subtotal() - discountValue();
 
   const loyaltyDiscount =
     loyaltyInfo && loyaltyPointsUsed > 0
       ? Math.min(
-          loyaltyPointsUsed / loyaltyInfo.redeemValue,
+          loyaltyPointsUsed /
+            loyaltyInfo.redeemValue,
           loyaltyInfo.maxRedeemDiscount
         )
       : 0;
 
   const activeTipPct =
-    sub > 0 ? Math.round((tipAmount / sub) * 100) : 0;
+    sub > 0
+      ? Math.round(
+          (tipAmount / sub) * 100
+        )
+      : 0;
 
   function handleTipPreset(pct: number) {
     if (activeTipPct === pct) {
       setTipAmount(0);
     } else {
-      setTipAmount((sub * pct) / 100);
+      setTipAmount(
+        (sub * pct) / 100
+      );
     }
 
     setCustomTip("");
@@ -139,26 +178,60 @@ export function PaymentPanel({
   }
 
   /*
-   * HONESTY CHECKOUT
+   * ==========================================================
+   * PHASE 6 — HONESTY CHECKOUT
+   * ==========================================================
    *
-   * Cash:
-   * The student declares that they have already deposited the cash.
+   * The important protection here is:
    *
-   * Cashless:
-   * We deliberately do NOT complete the sale here.
-   * A real payment provider must confirm the payment server-side first.
+   * 1. Check checkoutLocked BEFORE doing anything.
+   * 2. Lock checkout IMMEDIATELY.
+   * 3. Set loading state.
+   * 4. Send exactly one request.
+   *
+   * This prevents rapid double-clicks from creating
+   * two sales from the same cart.
    */
   async function handleHonestyCashPayment() {
-    if (isEmpty || loading) return;
-
-    if (!customerId) {
-      setError("Please identify the student before paying.");
+    /*
+     * FIRST LINE OF DEFENSE
+     *
+     * If another click/request already started checkout,
+     * immediately reject this attempt.
+     */
+    if (
+      isEmpty ||
+      loading ||
+      checkoutLocked
+    ) {
       return;
     }
 
+    /*
+     * Student/customer is mandatory.
+     */
+    if (!customerId) {
+      setError(
+        "Please identify the student before paying."
+      );
+      return;
+    }
+
+    /*
+     * LOCK BEFORE THE NETWORK REQUEST.
+     *
+     * This is intentionally before fetch().
+     */
+    setCheckoutLocked(true);
     setError(null);
     setLoading(true);
 
+    /*
+     * Capture the current cart immediately.
+     *
+     * This prevents later UI changes from affecting
+     * the request that is already being submitted.
+     */
     const {
       items: cartItems,
       discountAmount,
@@ -173,55 +246,84 @@ export function PaymentPanel({
           name: i.name,
           price: i.price,
           quantity: i.quantity,
-          notes: i.notes || undefined,
+          notes:
+            i.notes || undefined,
         })),
 
         paymentMethod: "CASH",
 
         /*
-         * Honesty cash does not collect or verify a tendered amount.
-         * The declared amount is the exact transaction total.
+         * Honesty cash does not collect or verify a
+         * tendered amount.
+         *
+         * The student declares the exact amount.
          */
         amountTendered: tot,
 
         taxRate: effectiveTaxRate,
+
         discountAmount,
         discountType,
+
         tipAmount,
-        note: note || undefined,
+
+        note:
+          note || undefined,
+
         customerId,
 
-        loyaltyPointsUsed: loyaltyPointsUsed || 0,
+        loyaltyPointsUsed:
+          loyaltyPointsUsed || 0,
 
         /*
-         * Server recognizes this as a student honesty declaration.
+         * Server recognizes this as an honesty
+         * cash declaration.
          */
         honestyPayment: true,
         cashDeclared: true,
       };
 
-      const res = await fetch("/api/sales", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(
+        "/api/sales",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify(body),
+        }
+      );
 
       const resp = await res.json();
 
       if (!res.ok) {
         throw new Error(
-          resp.error ?? "Failed to record payment."
+          resp.error ??
+            "Failed to record payment."
         );
       }
 
-      const saleId: string = resp.sale?.id ?? "";
+      const saleId: string =
+        resp.sale?.id ?? "";
 
       if (!saleId) {
-        throw new Error("Sale was created but no sale ID was returned.");
+        throw new Error(
+          "Sale was created but no sale ID was returned."
+        );
       }
 
+      /*
+       * SUCCESS
+       *
+       * The parent POS screen handles:
+       * - receipt
+       * - cart clearing
+       * - customer clearing
+       *
+       * The cart-empty effect above also resets
+       * the checkout lock.
+       */
       if (onSaleComplete) {
         onSaleComplete(saleId);
       } else {
@@ -231,6 +333,14 @@ export function PaymentPanel({
 
       router.refresh();
     } catch (err) {
+      /*
+       * If the request failed, unlock checkout so
+       * the student can safely try again.
+       *
+       * A successful request never reaches this block.
+       */
+      setCheckoutLocked(false);
+
       setError(
         err instanceof Error
           ? err.message
@@ -242,25 +352,35 @@ export function PaymentPanel({
   }
 
   async function handleHoldOrder() {
-    if (isEmpty) return;
+    if (
+      isEmpty ||
+      holdLoading ||
+      checkoutLocked
+    ) {
+      return;
+    }
 
     setHoldLoading(true);
 
     try {
-      const res = await fetch("/api/held-orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          cartSnapshot: {
-            items,
-            paymentMethod,
-            amountTendered: tot,
+      const res = await fetch(
+        "/api/held-orders",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
           },
-          label: `Hold ${new Date().toLocaleTimeString()}`,
-        }),
-      });
+          body: JSON.stringify({
+            cartSnapshot: {
+              items,
+              paymentMethod,
+              amountTendered: tot,
+            },
+            label: `Hold ${new Date().toLocaleTimeString()}`,
+          }),
+        }
+      );
 
       if (res.ok) {
         clearCart();
@@ -272,27 +392,39 @@ export function PaymentPanel({
 
   return (
     <div className="border-t p-4 space-y-3">
+
       {/* Hold / Recall */}
+
       <div className="flex gap-2">
         <button
           onClick={handleHoldOrder}
-          disabled={isEmpty || holdLoading}
+          disabled={
+            isEmpty ||
+            holdLoading ||
+            checkoutLocked
+          }
           className="flex-1 flex items-center justify-center gap-1 rounded-md border py-2 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50 disabled:pointer-events-none transition-colors"
         >
           <PauseCircle className="h-3.5 w-3.5" />
-          {holdLoading ? "..." : t("hold")}
+
+          {holdLoading
+            ? "..."
+            : t("hold")}
         </button>
 
         <button
           onClick={onHoldOrders}
-          className="flex-1 flex items-center justify-center gap-1 rounded-md border py-2 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
+          disabled={checkoutLocked}
+          className="flex-1 flex items-center justify-center gap-1 rounded-md border py-2 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50 disabled:pointer-events-none transition-colors"
         >
           <ClipboardList className="h-3.5 w-3.5" />
+
           Recall
         </button>
       </div>
 
       {/* Student requirement */}
+
       {!isEmpty && (
         <div
           className={`rounded-lg border px-3 py-2 ${
@@ -304,6 +436,7 @@ export function PaymentPanel({
           {customerId ? (
             <div className="flex items-center gap-2 text-xs font-medium text-green-700 dark:text-green-400">
               <CheckCircle2 className="h-4 w-4" />
+
               Student identified
             </div>
           ) : (
@@ -315,6 +448,7 @@ export function PaymentPanel({
       )}
 
       {/* Tip */}
+
       {!isEmpty && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -328,7 +462,8 @@ export function PaymentPanel({
                   setTipAmount(0);
                   setCustomTip("");
                 }}
-                className="text-xs text-muted-foreground hover:text-destructive"
+                disabled={checkoutLocked}
+                className="text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
               >
                 Remove
               </button>
@@ -339,11 +474,18 @@ export function PaymentPanel({
             {TIP_PRESETS.map((p) => (
               <button
                 key={p.label}
-                onClick={() => handleTipPreset(p.value)}
+                onClick={() =>
+                  handleTipPreset(
+                    p.value
+                  )
+                }
+                disabled={checkoutLocked}
                 className={
-                  activeTipPct === p.value && customTip === ""
-                    ? "flex-1 rounded-md border-2 border-primary bg-primary/10 py-1.5 text-xs font-semibold text-primary"
-                    : "flex-1 rounded-md border py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
+                  activeTipPct ===
+                    p.value &&
+                  customTip === ""
+                    ? "flex-1 rounded-md border-2 border-primary bg-primary/10 py-1.5 text-xs font-semibold text-primary disabled:opacity-50"
+                    : "flex-1 rounded-md border py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
                 }
               >
                 {p.label}
@@ -355,15 +497,21 @@ export function PaymentPanel({
               min={0}
               step={0.01}
               value={customTip}
-              onChange={(e) => handleCustomTip(e.target.value)}
+              onChange={(e) =>
+                handleCustomTip(
+                  e.target.value
+                )
+              }
+              disabled={checkoutLocked}
               placeholder="Custom"
-              className="w-20 rounded-md border px-2 py-1.5 text-xs text-center bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-20 rounded-md border px-2 py-1.5 text-xs text-center bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
           </div>
         </div>
       )}
 
       {/* Tax */}
+
       {!isEmpty && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -372,41 +520,76 @@ export function PaymentPanel({
             </span>
 
             <div className="flex items-center gap-2">
+
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={taxRateOverride === 0}
+                  checked={
+                    taxRateOverride ===
+                    0
+                  }
+                  disabled={
+                    checkoutLocked
+                  }
                   onChange={(e) => {
-                    if (e.target.checked) {
+                    if (
+                      e.target.checked
+                    ) {
                       setTaxRate(0);
-                      setShowTaxEdit(false);
+                      setShowTaxEdit(
+                        false
+                      );
                     } else {
                       setTaxRate(null);
                     }
                   }}
                   className="h-3 w-3 accent-primary"
                 />
+
                 Tax Exempt
               </label>
 
               <button
-                onClick={() => setShowTaxEdit((v) => !v)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                onClick={() =>
+                  setShowTaxEdit(
+                    (v) => !v
+                  )
+                }
+                disabled={
+                  checkoutLocked
+                }
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
               >
                 <Percent className="h-3 w-3" />
 
-                {taxRateOverride !== null
-                  ? `${(taxRateOverride * 100).toFixed(0)}% (custom)`
-                  : `${(taxRate * 100).toFixed(0)}% (default)`}
+                {taxRateOverride !==
+                null
+                  ? `${(
+                      taxRateOverride *
+                      100
+                    ).toFixed(
+                      0
+                    )}% (custom)`
+                  : `${(
+                      taxRate * 100
+                    ).toFixed(
+                      0
+                    )}% (default)`}
               </button>
 
-              {taxRateOverride !== null && (
+              {taxRateOverride !==
+                null && (
                 <button
                   onClick={() => {
                     setTaxRate(null);
-                    setShowTaxEdit(false);
+                    setShowTaxEdit(
+                      false
+                    );
                   }}
-                  className="text-muted-foreground hover:text-destructive"
+                  disabled={
+                    checkoutLocked
+                  }
+                  className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   title="Reset to default"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -415,49 +598,65 @@ export function PaymentPanel({
             </div>
           </div>
 
-          {showTaxEdit && taxRateOverride !== 0 && (
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                value={
-                  taxRateOverride !== null
-                    ? taxRateOverride * 100
-                    : taxRate * 100
-                }
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-
-                  if (
-                    !isNaN(val) &&
-                    val >= 0 &&
-                    val <= 100
-                  ) {
-                    setTaxRate(val / 100);
+          {showTaxEdit &&
+            taxRateOverride !==
+              0 && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={
+                    taxRateOverride !==
+                    null
+                      ? taxRateOverride *
+                        100
+                      : taxRate *
+                        100
                   }
-                }}
-                className="flex-1 rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Rate %"
-              />
+                  disabled={
+                    checkoutLocked
+                  }
+                  onChange={(e) => {
+                    const val =
+                      parseFloat(
+                        e.target.value
+                      );
 
-              <span className="text-xs text-muted-foreground">
-                %
-              </span>
-            </div>
-          )}
+                    if (
+                      !isNaN(val) &&
+                      val >= 0 &&
+                      val <= 100
+                    ) {
+                      setTaxRate(
+                        val / 100
+                      );
+                    }
+                  }}
+                  className="flex-1 rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  placeholder="Rate %"
+                />
+
+                <span className="text-xs text-muted-foreground">
+                  %
+                </span>
+              </div>
+            )}
         </div>
       )}
 
       {/* Loyalty */}
+
       {!isEmpty &&
         loyaltyInfo?.enabled &&
         loyaltyInfo.points > 0 && (
           <div className="space-y-1.5">
+
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                 <Star className="h-3 w-3 text-yellow-500" />
+
                 Loyalty Points
               </span>
 
@@ -467,24 +666,41 @@ export function PaymentPanel({
             </div>
 
             <div className="flex items-center gap-2">
+
               <input
                 type="number"
                 min={0}
-                max={loyaltyInfo.points}
-                step={loyaltyInfo.redeemValue}
-                value={loyaltyPointsUsed || ""}
+                max={
+                  loyaltyInfo.points
+                }
+                step={
+                  loyaltyInfo.redeemValue
+                }
+                value={
+                  loyaltyPointsUsed ||
+                  ""
+                }
+                disabled={
+                  checkoutLocked
+                }
                 onChange={(e) =>
                   setLoyaltyPointsUsed(
-                    parseInt(e.target.value) || 0
+                    parseInt(
+                      e.target.value
+                    ) || 0
                   )
                 }
                 placeholder="Points to redeem"
-                className="flex-1 rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                className="flex-1 rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
 
-              {loyaltyPointsUsed > 0 && (
+              {loyaltyPointsUsed >
+                0 && (
                 <span className="text-xs text-green-600 font-medium">
-                  -{formatCurrency(loyaltyDiscount)}
+                  -
+                  {formatCurrency(
+                    loyaltyDiscount
+                  )}
                 </span>
               )}
             </div>
@@ -492,71 +708,103 @@ export function PaymentPanel({
         )}
 
       {/* HONESTY PAYMENT */}
+
       {!isEmpty && (
         <div className="space-y-2">
+
           <div className="text-xs font-semibold text-muted-foreground">
             PAYMENT
           </div>
 
           <div className="grid grid-cols-2 gap-2">
+
             <button
-              onClick={() => setPaymentMethod("CASH")}
+              onClick={() =>
+                setPaymentMethod(
+                  "CASH"
+                )
+              }
+              disabled={
+                checkoutLocked
+              }
               className={
-                paymentMethod === "CASH"
-                  ? "rounded-lg border-2 border-primary bg-primary/10 p-3 text-primary"
-                  : "rounded-lg border p-3 text-muted-foreground hover:bg-accent transition-colors"
+                paymentMethod ===
+                "CASH"
+                  ? "rounded-lg border-2 border-primary bg-primary/10 p-3 text-primary disabled:opacity-50"
+                  : "rounded-lg border p-3 text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
               }
             >
               <Banknote className="mx-auto mb-1 h-5 w-5" />
+
               <div className="text-sm font-semibold">
                 Cash
               </div>
+
               <div className="text-[10px] mt-0.5">
                 Honesty payment
               </div>
             </button>
 
             <button
-              onClick={() => setPaymentMethod("CARD")}
+              onClick={() =>
+                setPaymentMethod(
+                  "CARD"
+                )
+              }
+              disabled={
+                checkoutLocked
+              }
               className={
-                paymentMethod === "CARD"
-                  ? "rounded-lg border-2 border-primary bg-primary/10 p-3 text-primary"
-                  : "rounded-lg border p-3 text-muted-foreground hover:bg-accent transition-colors"
+                paymentMethod ===
+                "CARD"
+                  ? "rounded-lg border-2 border-primary bg-primary/10 p-3 text-primary disabled:opacity-50"
+                  : "rounded-lg border p-3 text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
               }
             >
               <Smartphone className="mx-auto mb-1 h-5 w-5" />
+
               <div className="text-sm font-semibold">
                 Cashless
               </div>
+
               <div className="text-[10px] mt-0.5">
                 Provider confirmation required
               </div>
             </button>
+
           </div>
 
-          {paymentMethod === "CASH" ? (
+          {paymentMethod ===
+          "CASH" ? (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3">
+
               <div className="text-center">
                 <p className="text-xs text-muted-foreground">
                   Amount to deposit
                 </p>
 
                 <p className="text-2xl font-bold tracking-tight">
-                  {formatCurrency(tot)}
+                  {formatCurrency(
+                    tot
+                  )}
                 </p>
               </div>
 
               <button
                 data-charge-btn
-                onClick={handleHonestyCashPayment}
+                onClick={
+                  handleHonestyCashPayment
+                }
                 disabled={
                   isEmpty ||
                   loading ||
+                  checkoutLocked ||
                   !customerId
                 }
                 className="w-full rounded-lg bg-primary py-4 text-base font-bold text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50"
               >
-                {loading
+                {loading ||
+                checkoutLocked
                   ? "Recording..."
                   : "I HAVE PAID"}
               </button>
@@ -565,9 +813,11 @@ export function PaymentPanel({
                 By tapping this button, the student confirms
                 that they have deposited the displayed amount.
               </p>
+
             </div>
           ) : (
             <div className="rounded-lg border border-dashed p-4 text-center">
+
               <Smartphone className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
 
               <p className="text-sm font-semibold">
@@ -582,33 +832,50 @@ export function PaymentPanel({
               <p className="mt-2 text-[10px] text-muted-foreground">
                 Cashless provider integration is not enabled yet.
               </p>
+
             </div>
           )}
         </div>
       )}
 
       {/* Totals */}
+
       {!isEmpty && (
         <div className="rounded-md bg-muted/40 px-3 py-2 space-y-1 text-xs">
+
           <div className="flex justify-between text-muted-foreground">
             <span>Subtotal</span>
-            <span>{formatCurrency(subtotal())}</span>
+
+            <span>
+              {formatCurrency(
+                subtotal()
+              )}
+            </span>
           </div>
 
-          {discountValue() > 0 && (
+          {discountValue() >
+            0 && (
             <div className="flex justify-between text-muted-foreground">
               <span>Discount</span>
+
               <span>
-                −{formatCurrency(discountValue())}
+                −
+                {formatCurrency(
+                  discountValue()
+                )}
               </span>
             </div>
           )}
 
-          {taxAmount(taxRate) > 0 && (
+          {taxAmount(taxRate) >
+            0 && (
             <div className="flex justify-between text-muted-foreground">
               <span>Tax</span>
+
               <span>
-                {formatCurrency(taxAmount(taxRate))}
+                {formatCurrency(
+                  taxAmount(taxRate)
+                )}
               </span>
             </div>
           )}
@@ -616,14 +883,23 @@ export function PaymentPanel({
           {tipAmount > 0 && (
             <div className="flex justify-between text-muted-foreground">
               <span>Tip</span>
-              <span>{formatCurrency(tipAmount)}</span>
+
+              <span>
+                {formatCurrency(
+                  tipAmount
+                )}
+              </span>
             </div>
           )}
 
           <div className="flex justify-between font-semibold text-foreground border-t pt-1 mt-1">
             <span>Total</span>
-            <span>{formatCurrency(tot)}</span>
+
+            <span>
+              {formatCurrency(tot)}
+            </span>
           </div>
+
         </div>
       )}
 
@@ -634,14 +910,17 @@ export function PaymentPanel({
       )}
 
       {/* Void / Clear */}
+
       {!isEmpty && (
         <button
           onClick={onClear}
-          className="w-full rounded-md border py-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+          disabled={checkoutLocked}
+          className="w-full rounded-md border py-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           {t("void")}
         </button>
       )}
+
     </div>
   );
 }
