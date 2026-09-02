@@ -1,71 +1,155 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import { unstable_noStore as noStore } from "next/cache";
-import { getTranslations } from "next-intl/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { serialize } from "@/lib/serialize";
-import { SettingsForm } from "@/components/settings/settings-form";
-import { DeviceSettingsForm } from "@/components/settings/device-settings-form";
-import { PluginsPanel } from "@/components/settings/plugins-panel";
-import { DbError } from "@/components/ui/db-error";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Settings" };
+
+export const metadata: Metadata = {
+  title: "Settings",
+};
 
 export default async function SettingsPage() {
-  noStore();
-  const t = await getTranslations("settings");
-  const session = await auth.api.getSession({ headers: await headers() });
+  const settings = await prisma.businessSettings.findUnique({
+    where: { id: "singleton" },
+  });
 
-  if (!session || session.user.role !== "ADMIN") {
-    redirect("/pos");
+  if (!settings) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="mt-2 text-muted-foreground">
+          Business settings have not been configured yet.
+        </p>
+      </div>
+    );
   }
 
-  // Upsert the singleton settings row so the form always has data
-  let settings;
-  try {
-    const raw = await prisma.businessSettings.upsert({
-      where: { id: "singleton" },
-      create: {},
-      update: {},
-    });
-    settings = serialize(raw);
-  } catch {
-    return <DbError page="settings" />;
-  }
+  const data = serialize(settings);
 
   return (
-    <div className="p-4 sm:p-6 max-w-3xl space-y-10">
-      <h1 className="text-2xl font-bold">{t("title")}</h1>
-      <SettingsForm settings={{
-        name: settings.name,
-        logoUrl: settings.logoUrl,
-        primaryColor: settings.primaryColor,
-        accentColor: settings.accentColor,
-        currency: settings.currency,
-        currencyDecimals: settings.currencyDecimals,
-        taxRate: settings.taxRate,
-        taxName: settings.taxName,
-        receiptFooter: settings.receiptFooter,
-        language: settings.language,
-        loyaltyEnabled: settings.loyaltyEnabled,
-        loyaltyEarnRate: settings.loyaltyEarnRate,
-        loyaltyRedeemValue: settings.loyaltyRedeemValue,
-        lowStockThreshold: settings.lowStockThreshold,
-        storageProvider: settings.storageProvider,
-        storageRegion: settings.storageRegion,
-        storageBucket: settings.storageBucket,
-        storageEndpoint: settings.storageEndpoint,
-        storageAccessKey: settings.storageAccessKey,
-        hasStorageSecretKey: !!settings.storageSecretKey,
-        storagePublicUrl: settings.storagePublicUrl,
-      }} />
-      <hr />
-      <DeviceSettingsForm />
-      <hr />
-      <PluginsPanel />
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage your store settings.
+        </p>
+      </div>
+
+      <div className="rounded-lg border bg-card p-5">
+        <h2 className="text-lg font-semibold mb-4">
+          Business Information
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Business Name</p>
+            <p className="font-medium">{data.name}</p>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground">Currency</p>
+            <p className="font-medium">{data.currency}</p>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground">Language</p>
+            <p className="font-medium">{data.language}</p>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground">Tax Name</p>
+            <p className="font-medium">{data.taxName}</p>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground">Tax Rate</p>
+            <p className="font-medium">
+              {(Number(data.taxRate) * 100).toFixed(2)}%
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground">
+              Low Stock Threshold
+            </p>
+            <p className="font-medium">{data.lowStockThreshold}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border bg-card p-5">
+        <h2 className="text-lg font-semibold mb-4">
+          Receipt
+        </h2>
+
+        <div>
+          <p className="text-xs text-muted-foreground">Receipt Footer</p>
+          <p className="font-medium">{data.receiptFooter}</p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border bg-card p-5">
+        <h2 className="text-lg font-semibold mb-4">
+          Appearance
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Primary Color</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span
+                className="h-6 w-6 rounded border"
+                style={{ backgroundColor: data.primaryColor }}
+              />
+              <span className="font-medium">{data.primaryColor}</span>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground">Accent Color</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span
+                className="h-6 w-6 rounded border"
+                style={{ backgroundColor: data.accentColor }}
+              />
+              <span className="font-medium">{data.accentColor}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border bg-card p-5">
+        <h2 className="text-lg font-semibold mb-4">
+          Storage
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">
+              Storage Provider
+            </p>
+            <p className="font-medium">{data.storageProvider}</p>
+          </div>
+
+          {data.storageRegion && (
+            <div>
+              <p className="text-xs text-muted-foreground">
+                Storage Region
+              </p>
+              <p className="font-medium">{data.storageRegion}</p>
+            </div>
+          )}
+
+          {data.storageBucket && (
+            <div>
+              <p className="text-xs text-muted-foreground">
+                Storage Bucket
+              </p>
+              <p className="font-medium">{data.storageBucket}</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
