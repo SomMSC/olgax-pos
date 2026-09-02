@@ -47,7 +47,6 @@ const saleSchema = z.object({
 
   customerId: z.string().optional(),
 
-  // HONESTY CHECKOUT
   honestyPayment: z.boolean().default(false),
 
   cashDeclared: z.boolean().default(false),
@@ -70,15 +69,6 @@ export async function POST(req: NextRequest) {
      * ----------------------------------------------------------
      * SERVER-SIDE IDEMPOTENCY PROTECTION
      * ----------------------------------------------------------
-     *
-     * The POS sends a unique Idempotency-Key for each checkout.
-     *
-     * PostgreSQL advisory locking ensures that if the exact same
-     * checkout request arrives twice at nearly the same time,
-     * only one request can create the sale.
-     *
-     * The key is also stored in the sale notes using a private
-     * marker so no database schema change is required.
      */
 
     const idempotencyKey =
@@ -319,21 +309,18 @@ export async function POST(req: NextRequest) {
 
     /*
      * ----------------------------------------------------------
-     * Create sale and update inventory atomically
+     * Create sale + update inventory atomically
      * ----------------------------------------------------------
      */
+
+    let wasDuplicate = false;
 
     const sale =
       await prisma.$transaction(
         async (tx) => {
           /*
-           * PostgreSQL transaction-level advisory lock.
-           *
-           * hashtext() converts the checkout key into a PostgreSQL
-           * advisory-lock identifier.
-           *
-           * This means two requests with the same Idempotency-Key
-           * cannot execute this protected section simultaneously.
+           * Only one transaction with this exact checkout key
+           * can enter this protected section at a time.
            */
           await tx.$executeRaw`
             SELECT pg_advisory_xact_lock(
@@ -341,16 +328,13 @@ export async function POST(req: NextRequest) {
             )
           `;
 
-          /*
-           * Look for a previously completed request using this
-           * exact idempotency key.
-           *
-           * The private marker prevents the key from being confused
-           * with an ordinary customer note.
-           */
           const idempotencyMarker =
             `[IDEMPOTENCY_KEY:${idempotencyKey}]`;
 
+          /*
+           * If this exact checkout was already completed,
+           * return the existing sale instead of creating another.
+           */
           const existing =
             await tx.sale.findFirst({
               where: {
@@ -368,17 +352,20 @@ export async function POST(req: NextRequest) {
             });
 
           if (existing) {
+            wasDuplicate = true;
             return existing;
           }
 
-          /*
-           * Preserve the user's note while adding the internal
-           * idempotency marker.
-           */
           const saleNotes =
             note
               ? `${note}\n${idempotencyMarker}`
               : idempotencyMarker;
+
+          /*
+           * ----------------------------------------------------
+           * Create sale
+           * ----------------------------------------------------
+           */
 
           const created =
             await tx.sale.create({
@@ -421,7 +408,8 @@ export async function POST(req: NextRequest) {
 
                 changeDue,
 
-                notes: saleNotes,
+                notes:
+                  saleNotes,
 
                 items: {
                   create:
@@ -458,22 +446,48 @@ export async function POST(req: NextRequest) {
 
           /*
            * ----------------------------------------------------
-           * Decrement stock
+           * SAFE INVENTORY DEDUCTION
            * ----------------------------------------------------
+           *
+           * The WHERE condition requires enough stock.
+           *
+           * Example:
+           * stock = 1
+           * requested = 2
+           *
+           * updateMany affects 0 rows.
+           * We throw an error.
+           * The entire Prisma transaction rolls back.
+           *
+           * Therefore:
+           * - no sale remains
+           * - no SaleItems remain
+           * - inventory is unchanged
            */
 
           for (const item of items) {
-            await tx.product.update({
-              where: {
-                id: item.productId,
-              },
-              data: {
-                stock: {
-                  decrement:
-                    item.quantity,
+            const stockUpdate =
+              await tx.product.updateMany({
+                where: {
+                  id: item.productId,
+                  active: true,
+                  stock: {
+                    gte: item.quantity,
+                  },
                 },
-              },
-            });
+                data: {
+                  stock: {
+                    decrement:
+                      item.quantity,
+                  },
+                },
+              });
+
+            if (stockUpdate.count !== 1) {
+              throw new Error(
+                `INSUFFICIENT_STOCK:${item.name}`
+              );
+            }
           }
 
           return created;
@@ -482,90 +496,84 @@ export async function POST(req: NextRequest) {
 
     /*
      * ----------------------------------------------------------
-     * Fire plugin hook
+     * Duplicate request
+     * ----------------------------------------------------------
      *
-     * Do NOT fire the hook again when this was a duplicate
-     * request that returned an existing sale.
+     * Return the original sale.
+     * Do NOT fire the sale-complete plugin again.
+     */
+
+    if (wasDuplicate) {
+      return NextResponse.json(
+        {
+          sale,
+          duplicate: true,
+        },
+        { status: 200 }
+      );
+    }
+
+    /*
+     * ----------------------------------------------------------
+     * Fire plugin hook
      * ----------------------------------------------------------
      */
 
-    const idempotencyMarker =
-      `[IDEMPOTENCY_KEY:${idempotencyKey}]`;
+    pluginRegistry
+      .fire("onSaleComplete", {
+        saleId: sale.id,
 
-    const wasAlreadyCreated =
-      sale.notes?.includes(
-        idempotencyMarker
-      ) &&
-      sale.createdAt <
-        new Date(
-          Date.now() - 1000
-        );
+        total: parseFloat(
+          sale.total.toString()
+        ),
 
-    /*
-     * The marker is present on every sale, so the safest way to
-     * identify a duplicate response is to check whether this
-     * request's sale was created before this request reached the
-     * response stage.
-     *
-     * We additionally keep plugin execution best-effort.
-     */
-    if (!wasAlreadyCreated) {
-      pluginRegistry
-        .fire("onSaleComplete", {
-          saleId: sale.id,
+        taxAmount: parseFloat(
+          sale.taxAmount?.toString() ??
+            "0"
+        ),
 
-          total: parseFloat(
-            sale.total.toString()
-          ),
+        tipAmount: parseFloat(
+          sale.tipAmount?.toString() ??
+            "0"
+        ),
 
-          taxAmount: parseFloat(
-            sale.taxAmount?.toString() ??
-              "0"
-          ),
+        items: sale.items.map(
+          (item: {
+            productId:
+              | string
+              | null;
+            name: string;
+            quantity: number;
+            price: {
+              toString(): string;
+            };
+          }) => ({
+            productId:
+              item.productId,
 
-          tipAmount: parseFloat(
-            sale.tipAmount?.toString() ??
-              "0"
-          ),
+            name:
+              item.name,
 
-          items: sale.items.map(
-            (item: {
-              productId:
-                | string
-                | null;
-              name: string;
-              quantity: number;
-              price: {
-                toString(): string;
-              };
-            }) => ({
-              productId:
-                item.productId,
+            quantity:
+              item.quantity,
 
-              name:
-                item.name,
+            price: parseFloat(
+              item.price.toString()
+            ),
+          })
+        ),
 
-              quantity:
-                item.quantity,
+        customerId:
+          sale.customerId ?? null,
 
-              price: parseFloat(
-                item.price.toString()
-              ),
-            })
-          ),
+        paymentMethod:
+          sale.paymentMethod,
 
-          customerId:
-            sale.customerId ?? null,
-
-          paymentMethod:
-            sale.paymentMethod,
-
-          loyaltyPointsUsed: 0,
-        })
-        .catch(() => {
-          // Plugin errors are handled internally.
-        });
-    }
+        loyaltyPointsUsed: 0,
+      })
+      .catch(() => {
+        // Plugin errors are handled internally.
+      });
 
     return NextResponse.json(
       { sale },
@@ -576,6 +584,30 @@ export async function POST(req: NextRequest) {
       "Sales POST error:",
       error
     );
+
+    /*
+     * Inventory protection returns HTTP 409 instead of
+     * a generic 500 error.
+     */
+    if (
+      error instanceof Error &&
+      error.message.startsWith(
+        "INSUFFICIENT_STOCK:"
+      )
+    ) {
+      const productName =
+        error.message.replace(
+          "INSUFFICIENT_STOCK:",
+          ""
+        );
+
+      return NextResponse.json(
+        {
+          error: `Insufficient stock for ${productName}. The sale was not completed.`,
+        },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(
       {
