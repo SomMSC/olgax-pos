@@ -7,13 +7,14 @@ export const auth = betterAuth({
     provider: "postgresql",
   }),
   secret: process.env.BETTER_AUTH_SECRET!,
-  // baseURL must match the origin making requests.
-  // In dev you may access via localhost OR a network IP — trust both.
-  baseURL:
-  process.env.BETTER_AUTH_URL ??
-  "https://olgax-jrkmkmuhn-psu-som-msc.vercel.app",
-  trustedOrigins: [
-  "https://olgax-jrkmkmuhn-psu-som-msc.vercel.app",
+
+baseURL: {
+  allowedHosts: ["*.vercel.app"],
+  protocol: "https",
+},
+
+trustedOrigins: [
+  "https://*.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ],
