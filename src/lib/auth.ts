@@ -10,12 +10,11 @@ export const auth = betterAuth({
   // baseURL must match the origin making requests.
   // In dev you may access via localhost OR a network IP — trust both.
   baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
-  trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS
-    ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(",").map((o) => o.trim())
-    // In dev allow any private-network origin so accessing via IP works out of the box
-    : process.env.NODE_ENV === "production"
-      ? []
-      : ["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.8.186:3000"],
+  trustedOrigins: [
+  "https://olgax-jrkmkmuhn-psu-som-msc.vercel.app",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+],
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 6,
