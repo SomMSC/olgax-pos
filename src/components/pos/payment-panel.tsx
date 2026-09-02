@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { useCartStore, PaymentMethod } from "@/store/cart";
 import { formatCurrency } from "@/lib/utils";
@@ -50,6 +50,7 @@ export function PaymentPanel({
     items,
     paymentMethod,
     setPaymentMethod,
+    amountTendered,
     paymentLines,
     clearCart,
     tipAmount,
@@ -66,23 +67,21 @@ export function PaymentPanel({
 
   const [loading, setLoading] = useState(false);
   const [holdLoading, setHoldLoading] = useState(false);
+  const [checkoutLocked, setCheckoutLocked] =
+    useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customTip, setCustomTip] = useState("");
   const [showTaxEdit, setShowTaxEdit] = useState(false);
 
   /*
-   * PHASE 6
+   * One unique ID for each checkout.
    *
-   * This lock is separate from `loading`.
-   *
-   * `loading` controls the UI while the request is active.
-   *
-   * `checkoutLocked` prevents a second checkout from being
-   * started even if the browser fires multiple clicks before
-   * React has rendered the loading state.
+   * The same ID is reused if the request is accidentally
+   * submitted more than once, allowing the server to recognize
+   * it as the same transaction.
    */
-  const [checkoutLocked, setCheckoutLocked] =
-    useState(false);
+  const checkoutIdRef =
+    useRef<string | null>(null);
 
   const [loyaltyInfo, setLoyaltyInfo] = useState<{
     points: number;
@@ -115,14 +114,16 @@ export function PaymentPanel({
   }, [customerId, setLoyaltyPointsUsed]);
 
   /*
-   * If the cart becomes empty, make sure the checkout lock
-   * is cleared so the next transaction can be completed.
+   * Reset checkout protection when the cart becomes empty.
+   *
+   * A new cart gets a new idempotency key.
    */
   useEffect(() => {
     if (items.length === 0) {
       setCheckoutLocked(false);
       setLoading(false);
       setError(null);
+      checkoutIdRef.current = null;
     }
   }, [items.length]);
 
@@ -178,27 +179,17 @@ export function PaymentPanel({
   }
 
   /*
-   * ==========================================================
-   * PHASE 6 — HONESTY CHECKOUT
-   * ==========================================================
+   * HONESTY CHECKOUT
    *
-   * The important protection here is:
+   * Cash:
+   * The student declares that they have already deposited
+   * the displayed amount.
    *
-   * 1. Check checkoutLocked BEFORE doing anything.
-   * 2. Lock checkout IMMEDIATELY.
-   * 3. Set loading state.
-   * 4. Send exactly one request.
-   *
-   * This prevents rapid double-clicks from creating
-   * two sales from the same cart.
+   * Cashless:
+   * The sale is not completed until a real provider confirms
+   * the payment server-side.
    */
   async function handleHonestyCashPayment() {
-    /*
-     * FIRST LINE OF DEFENSE
-     *
-     * If another click/request already started checkout,
-     * immediately reject this attempt.
-     */
     if (
       isEmpty ||
       loading ||
@@ -207,9 +198,6 @@ export function PaymentPanel({
       return;
     }
 
-    /*
-     * Student/customer is mandatory.
-     */
     if (!customerId) {
       setError(
         "Please identify the student before paying."
@@ -218,20 +206,23 @@ export function PaymentPanel({
     }
 
     /*
-     * LOCK BEFORE THE NETWORK REQUEST.
-     *
-     * This is intentionally before fetch().
+     * Lock immediately before starting the request.
      */
     setCheckoutLocked(true);
     setError(null);
     setLoading(true);
 
     /*
-     * Capture the current cart immediately.
+     * Create the idempotency key once for this checkout.
      *
-     * This prevents later UI changes from affecting
-     * the request that is already being submitted.
+     * If a duplicate request somehow reaches the server,
+     * it will use the same key.
      */
+    if (!checkoutIdRef.current) {
+      checkoutIdRef.current =
+        crypto.randomUUID();
+    }
+
     const {
       items: cartItems,
       discountAmount,
@@ -252,17 +243,12 @@ export function PaymentPanel({
 
         paymentMethod: "CASH",
 
-        /*
-         * Honesty cash does not collect or verify a
-         * tendered amount.
-         *
-         * The student declares the exact amount.
-         */
         amountTendered: tot,
 
         taxRate: effectiveTaxRate,
 
         discountAmount,
+
         discountType,
 
         tipAmount,
@@ -275,11 +261,8 @@ export function PaymentPanel({
         loyaltyPointsUsed:
           loyaltyPointsUsed || 0,
 
-        /*
-         * Server recognizes this as an honesty
-         * cash declaration.
-         */
         honestyPayment: true,
+
         cashDeclared: true,
       };
 
@@ -287,15 +270,21 @@ export function PaymentPanel({
         "/api/sales",
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
+
+            "Idempotency-Key":
+              checkoutIdRef.current,
           },
+
           body: JSON.stringify(body),
         }
       );
 
-      const resp = await res.json();
+      const resp =
+        await res.json();
 
       if (!res.ok) {
         throw new Error(
@@ -314,15 +303,10 @@ export function PaymentPanel({
       }
 
       /*
-       * SUCCESS
+       * Successful checkout.
        *
-       * The parent POS screen handles:
-       * - receipt
-       * - cart clearing
-       * - customer clearing
-       *
-       * The cart-empty effect above also resets
-       * the checkout lock.
+       * The parent normally handles receipt generation,
+       * cart clearing, and student clearing.
        */
       if (onSaleComplete) {
         onSaleComplete(saleId);
@@ -334,10 +318,12 @@ export function PaymentPanel({
       router.refresh();
     } catch (err) {
       /*
-       * If the request failed, unlock checkout so
-       * the student can safely try again.
+       * Allow the user to retry if the request failed.
        *
-       * A successful request never reaches this block.
+       * The same idempotency key is retained so that if the
+       * server actually completed the sale but the response
+       * was lost, retrying will return the original sale instead
+       * of creating a second one.
        */
       setCheckoutLocked(false);
 
@@ -354,7 +340,6 @@ export function PaymentPanel({
   async function handleHoldOrder() {
     if (
       isEmpty ||
-      holdLoading ||
       checkoutLocked
     ) {
       return;
@@ -392,9 +377,7 @@ export function PaymentPanel({
 
   return (
     <div className="border-t p-4 space-y-3">
-
       {/* Hold / Recall */}
-
       <div className="flex gap-2">
         <button
           onClick={handleHoldOrder}
@@ -424,7 +407,6 @@ export function PaymentPanel({
       </div>
 
       {/* Student requirement */}
-
       {!isEmpty && (
         <div
           className={`rounded-lg border px-3 py-2 ${
@@ -448,7 +430,6 @@ export function PaymentPanel({
       )}
 
       {/* Tip */}
-
       {!isEmpty && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -479,7 +460,9 @@ export function PaymentPanel({
                     p.value
                   )
                 }
-                disabled={checkoutLocked}
+                disabled={
+                  checkoutLocked
+                }
                 className={
                   activeTipPct ===
                     p.value &&
@@ -502,7 +485,9 @@ export function PaymentPanel({
                   e.target.value
                 )
               }
-              disabled={checkoutLocked}
+              disabled={
+                checkoutLocked
+              }
               placeholder="Custom"
               className="w-20 rounded-md border px-2 py-1.5 text-xs text-center bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
@@ -511,7 +496,6 @@ export function PaymentPanel({
       )}
 
       {/* Tax */}
-
       {!isEmpty && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -520,7 +504,6 @@ export function PaymentPanel({
             </span>
 
             <div className="flex items-center gap-2">
-
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                 <input
                   type="checkbox"
@@ -581,7 +564,9 @@ export function PaymentPanel({
                 null && (
                 <button
                   onClick={() => {
-                    setTaxRate(null);
+                    setTaxRate(
+                      null
+                    );
                     setShowTaxEdit(
                       false
                     );
@@ -647,12 +632,10 @@ export function PaymentPanel({
       )}
 
       {/* Loyalty */}
-
       {!isEmpty &&
         loyaltyInfo?.enabled &&
         loyaltyInfo.points > 0 && (
           <div className="space-y-1.5">
-
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                 <Star className="h-3 w-3 text-yellow-500" />
@@ -661,12 +644,12 @@ export function PaymentPanel({
               </span>
 
               <span className="text-xs font-semibold">
-                {loyaltyInfo.points} pts available
+                {loyaltyInfo.points}{" "}
+                pts available
               </span>
             </div>
 
             <div className="flex items-center gap-2">
-
               <input
                 type="number"
                 min={0}
@@ -708,16 +691,13 @@ export function PaymentPanel({
         )}
 
       {/* HONESTY PAYMENT */}
-
       {!isEmpty && (
         <div className="space-y-2">
-
           <div className="text-xs font-semibold text-muted-foreground">
             PAYMENT
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-
             <button
               onClick={() =>
                 setPaymentMethod(
@@ -771,13 +751,11 @@ export function PaymentPanel({
                 Provider confirmation required
               </div>
             </button>
-
           </div>
 
           {paymentMethod ===
           "CASH" ? (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3">
-
               <div className="text-center">
                 <p className="text-xs text-muted-foreground">
                   Amount to deposit
@@ -803,21 +781,20 @@ export function PaymentPanel({
                 }
                 className="w-full rounded-lg bg-primary py-4 text-base font-bold text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50"
               >
-                {loading ||
-                checkoutLocked
+                {loading
                   ? "Recording..."
                   : "I HAVE PAID"}
               </button>
 
               <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-                By tapping this button, the student confirms
-                that they have deposited the displayed amount.
+                By tapping this button,
+                the student confirms
+                that they have deposited
+                the displayed amount.
               </p>
-
             </div>
           ) : (
             <div className="rounded-lg border border-dashed p-4 text-center">
-
               <Smartphone className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
 
               <p className="text-sm font-semibold">
@@ -825,26 +802,29 @@ export function PaymentPanel({
               </p>
 
               <p className="mt-1 text-xs text-muted-foreground">
-                A payment provider must confirm the transaction
-                before the sale can be completed.
+                A payment provider must
+                confirm the transaction
+                before the sale can be
+                completed.
               </p>
 
               <p className="mt-2 text-[10px] text-muted-foreground">
-                Cashless provider integration is not enabled yet.
+                Cashless provider
+                integration is not enabled
+                yet.
               </p>
-
             </div>
           )}
         </div>
       )}
 
       {/* Totals */}
-
       {!isEmpty && (
         <div className="rounded-md bg-muted/40 px-3 py-2 space-y-1 text-xs">
-
           <div className="flex justify-between text-muted-foreground">
-            <span>Subtotal</span>
+            <span>
+              Subtotal
+            </span>
 
             <span>
               {formatCurrency(
@@ -853,10 +833,11 @@ export function PaymentPanel({
             </span>
           </div>
 
-          {discountValue() >
-            0 && (
+          {discountValue() > 0 && (
             <div className="flex justify-between text-muted-foreground">
-              <span>Discount</span>
+              <span>
+                Discount
+              </span>
 
               <span>
                 −
@@ -870,11 +851,15 @@ export function PaymentPanel({
           {taxAmount(taxRate) >
             0 && (
             <div className="flex justify-between text-muted-foreground">
-              <span>Tax</span>
+              <span>
+                Tax
+              </span>
 
               <span>
                 {formatCurrency(
-                  taxAmount(taxRate)
+                  taxAmount(
+                    taxRate
+                  )
                 )}
               </span>
             </div>
@@ -882,7 +867,9 @@ export function PaymentPanel({
 
           {tipAmount > 0 && (
             <div className="flex justify-between text-muted-foreground">
-              <span>Tip</span>
+              <span>
+                Tip
+              </span>
 
               <span>
                 {formatCurrency(
@@ -893,13 +880,16 @@ export function PaymentPanel({
           )}
 
           <div className="flex justify-between font-semibold text-foreground border-t pt-1 mt-1">
-            <span>Total</span>
+            <span>
+              Total
+            </span>
 
             <span>
-              {formatCurrency(tot)}
+              {formatCurrency(
+                tot
+              )}
             </span>
           </div>
-
         </div>
       )}
 
@@ -910,17 +900,17 @@ export function PaymentPanel({
       )}
 
       {/* Void / Clear */}
-
       {!isEmpty && (
         <button
           onClick={onClear}
-          disabled={checkoutLocked}
+          disabled={
+            checkoutLocked
+          }
           className="w-full rounded-md border py-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           {t("void")}
         </button>
       )}
-
     </div>
   );
 }
