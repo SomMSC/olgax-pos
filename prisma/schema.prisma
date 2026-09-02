@@ -120,18 +120,18 @@ model Product {
 }
 
 // ============================================================
-// Buyer
+// Customer
 // ============================================================
 
-enum BuyerType {
+enum CustomerType {
   STUDENT
   STAFF
 }
 
-model Buyer {
+model Customer {
   id        String     @id @default(cuid())
   name      String
-  type      BuyerType
+  type      CustomerType
   schoolId  String?
   staffId   String?
   active    Boolean    @default(true)
@@ -152,7 +152,7 @@ model Buyer {
 model Sale {
   id             String        @id @default(cuid())
   userId         String
-  buyerId        String?
+  customerId     String?
   subtotal       Decimal       @db.Decimal(10, 2)
   taxRate        Decimal       @default(0) @db.Decimal(5, 2)
   taxAmount      Decimal       @db.Decimal(10, 2)
@@ -169,7 +169,7 @@ model Sale {
   createdAt      DateTime      @default(now())
 
   user     User      @relation(fields: [userId], references: [id])
-  buyer    Buyer?    @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items    SaleItem[]
   refunds  Refund[]
 }
