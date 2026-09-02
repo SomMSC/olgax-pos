@@ -1,79 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { CustomerType } from "@/generated/prisma";
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({
-    headers: await headers(),
+    headers: request.headers,
   });
 
-  if (!session) {
+  if (!session?.user) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401 }
     );
   }
 
-  const { searchParams } = new URL(request.url);
+  try {
+    const { searchParams } = new URL(request.url);
 
-  const search = searchParams.get("search")?.trim() || "";
-  const typeParam = searchParams.get("type");
+    const search = searchParams.get("search")?.trim() || "";
+    const type = searchParams.get("type")?.trim() || "";
 
-  const page = Math.max(
-    1,
-    Number.parseInt(searchParams.get("page") || "1", 10) || 1
-  );
-
-  const limit = Math.min(
-    100,
-    Math.max(
+    const page = Math.max(
       1,
-      Number.parseInt(searchParams.get("limit") || "20", 10) || 20
-    )
-  );
+      parseInt(searchParams.get("page") || "1", 10)
+    );
 
-  const skip = (page - 1) * limit;
+    const limit = Math.min(
+      100,
+      Math.max(
+        1,
+        parseInt(searchParams.get("limit") || "25", 10)
+      )
+    );
 
-  const customerType =
-    typeParam === "STUDENT"
-      ? CustomerType.STUDENT
-      : typeParam === "STAFF"
-        ? CustomerType.STAFF
+    const skip = (page - 1) * limit;
+
+    const customerType =
+      type === "STUDENT" || type === "STAFF"
+        ? type
         : undefined;
 
-  const where = {
-    ...(search
-      ? {
-          OR: [
-            {
-              name: {
-                contains: search,
-                mode: "insensitive" as const,
-              },
-            },
-            {
-              schoolId: {
-                contains: search,
-                mode: "insensitive" as const,
-              },
-            },
-            {
-              staffId: {
-                contains: search,
-                mode: "insensitive" as const,
-              },
-            },
-          ],
-        }
-      : {}),
-    ...(customerType !== undefined
-      ? { type: customerType }
-      : {}),
-  };
+    const where = {
+      ...(customerType
+        ? {
+            type: customerType,
+          }
+        : {}),
 
-  try {
+      ...(search
+        ? {
+            OR: [
+              {
+                name: {
+                  contains: search,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                schoolId: {
+                  contains: search,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                staffId: {
+                  contains: search,
+                  mode: "insensitive" as const,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
         where,
@@ -109,125 +108,96 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Get customers error:", error);
+    console.error("Customers GET error:", error);
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to fetch customers",
+        error: "Failed to fetch customers",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({
-    headers: await headers(),
+    headers: request.headers,
   });
 
-  if (!session) {
+  if (!session?.user) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401 }
     );
   }
 
-  const body = await request.json().catch(() => null);
-
-  if (!body) {
-    return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 }
-    );
-  }
-
-  const name =
-    typeof body.name === "string"
-      ? body.name.trim()
-      : "";
-
-  const type =
-    body.type === "STUDENT"
-      ? CustomerType.STUDENT
-      : body.type === "STAFF"
-        ? CustomerType.STAFF
-        : null;
-
-  const schoolId =
-    typeof body.schoolId === "string"
-      ? body.schoolId.trim() || null
-      : null;
-
-  const staffId =
-    typeof body.staffId === "string"
-      ? body.staffId.trim() || null
-      : null;
-
-  if (name.length < 2) {
-    return NextResponse.json(
-      { error: "Name must be at least 2 characters" },
-      { status: 400 }
-    );
-  }
-
-  if (!type) {
-    return NextResponse.json(
-      { error: "Customer type must be STUDENT or STAFF" },
-      { status: 400 }
-    );
-  }
-
-  if (type === CustomerType.STUDENT && !schoolId) {
-    return NextResponse.json(
-      { error: "School ID is required for students" },
-      { status: 400 }
-    );
-  }
-
-  if (type === CustomerType.STAFF && !staffId) {
-    return NextResponse.json(
-      { error: "Staff ID is required for staff" },
-      { status: 400 }
-    );
-  }
-
   try {
+    const body = await request.json();
+
+    const name = String(body.name || "").trim();
+    const type = String(body.type || "").trim();
+
+    const schoolId = body.schoolId
+      ? String(body.schoolId).trim()
+      : null;
+
+    const staffId = body.staffId
+      ? String(body.staffId).trim()
+      : null;
+
+    if (!name) {
+      return NextResponse.json(
+        { error: "Name is required" },
+        { status: 400 }
+      );
+    }
+
+    if (type !== "STUDENT" && type !== "STAFF") {
+      return NextResponse.json(
+        {
+          error: "Type must be STUDENT or STAFF",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
     const customer = await prisma.customer.create({
       data: {
         name,
         type,
-        schoolId:
-          type === CustomerType.STUDENT
-            ? schoolId
-            : null,
-        staffId:
-          type === CustomerType.STAFF
-            ? staffId
-            : null,
+        schoolId,
+        staffId,
+      },
+
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        schoolId: true,
+        staffId: true,
+        active: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        customer,
-      },
-      { status: 201 }
-    );
+    return NextResponse.json(customer, {
+      status: 201,
+    });
   } catch (error) {
-    console.error("Create customer error:", error);
+    console.error("Customers POST error:", error);
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to create customer",
+        error: "Failed to create customer",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
