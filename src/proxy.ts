@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Routes that anyone can access without logging in.
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth",
@@ -30,9 +29,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // PUBLIC ROUTES MUST BE CHECKED BEFORE THE SETUP BARRIER.
-  // This allows /store to work in a completely new browser
-  // without a setup cookie or authentication cookie.
+  // PUBLIC ROUTES MUST COME BEFORE THE SETUP BARRIER.
   if (
     PUBLIC_PATHS.some(
       (path) =>
@@ -42,7 +39,6 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check setup completion via cookie.
   const setupDone =
     request.cookies.get("olgax-setup-complete")?.value === "1";
 
@@ -55,14 +51,12 @@ export function proxy(request: NextRequest) {
     pathname === "/api/setup" ||
     pathname.startsWith("/api/setup/");
 
-  // If setup is already complete, don't allow returning to setup.
   if (setupDone && isSetupPath) {
     return NextResponse.redirect(
       new URL("/login", request.url)
     );
   }
 
-  // If setup is incomplete, force protected routes to setup.
   if (
     (!setupDone || !hasDbUrl || !hasAuthSecret) &&
     !isSetupPath
@@ -72,21 +66,18 @@ export function proxy(request: NextRequest) {
     );
   }
 
-  // Check Better Auth session cookie.
   const hasSession =
     !!request.cookies.get("better-auth.session_token")?.value ||
     !!request.cookies.get(
       "__Secure-better-auth.session_token"
     )?.value;
 
-  // Logged-in user trying to access login.
   if (hasSession && pathname === "/login") {
     return NextResponse.redirect(
       new URL("/pos", request.url)
     );
   }
 
-  // Protected routes require authentication.
   if (!hasSession) {
     return NextResponse.redirect(
       new URL("/login", request.url)
